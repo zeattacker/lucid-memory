@@ -261,7 +261,7 @@ The cubing is crucial—it ensures that only strongly matching traces contribute
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+GPL-3.0 License - see [LICENSE](LICENSE) for details.
 
 ---
 

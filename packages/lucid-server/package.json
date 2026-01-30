@@ -22,5 +22,5 @@
     "typescript": "^5.0.0"
   },
   "keywords": ["mcp", "claude", "memory", "sqlite", "ai"],
-  "license": "MIT"
+  "license": "GPL-3.0"
 }
