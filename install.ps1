@@ -1,0 +1,342 @@
+# Lucid Memory Installer for Windows
+#
+# One-liner installation (run in PowerShell as Administrator):
+#   irm https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.ps1 | iex
+#
+# What this does:
+#   1. Checks all prerequisites (git, disk space, etc.)
+#   2. Installs Bun if needed
+#   3. Creates ~/.lucid directory
+#   4. Downloads and installs lucid-server
+#   5. Sets up Ollama for local embeddings (or OpenAI)
+#   6. Configures Claude Code MCP settings
+#   7. Installs hooks for automatic memory capture
+#   8. Restarts Claude Code to activate
+
+$ErrorActionPreference = "Stop"
+
+# Minimum disk space required (in bytes) - 5GB
+$MIN_DISK_SPACE = 5GB
+
+# Colors for output
+function Write-Success { param($Message) Write-Host "✓ $Message" -ForegroundColor Green }
+function Write-Warn { param($Message) Write-Host "⚠️  $Message" -ForegroundColor Yellow }
+function Write-Fail {
+    param($Message, $Help)
+    Write-Host "❌ Error: $Message" -ForegroundColor Red
+    if ($Help) { Write-Host $Help -ForegroundColor Yellow }
+    exit 1
+}
+
+Write-Host ""
+Write-Host "🧠 Lucid Memory Installer" -ForegroundColor Blue
+Write-Host "=========================" -ForegroundColor Blue
+Write-Host ""
+
+# === Pre-flight Checks ===
+
+Write-Host "Running pre-flight checks..."
+Write-Host ""
+
+# Check for git
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Fail "Git is not installed" "Please install Git first: https://git-scm.com/download/win"
+}
+Write-Success "Git installed"
+
+# Check disk space
+$Drive = (Get-Item $env:USERPROFILE).PSDrive.Name
+$FreeSpace = (Get-PSDrive $Drive).Free
+if ($FreeSpace -lt $MIN_DISK_SPACE) {
+    $FreeGB = [math]::Round($FreeSpace / 1GB, 1)
+    Write-Fail "Insufficient disk space" "Lucid Memory requires at least 5GB of free space.`nAvailable: ${FreeGB}GB"
+}
+$FreeGB = [math]::Round($FreeSpace / 1GB, 1)
+Write-Success "Disk space OK (${FreeGB}GB available)"
+
+# Check for Bun
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+    Write-Host ""
+    Write-Host "Installing Bun..."
+    try {
+        irm bun.sh/install.ps1 | iex
+        $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
+    } catch {
+        Write-Fail "Bun installation failed" "Please install Bun manually: https://bun.sh"
+    }
+}
+$BunVersion = bun --version
+Write-Success "Bun $BunVersion"
+
+# Check for Claude Code
+$ClaudeSettingsDir = "$env:USERPROFILE\.claude"
+if (-not (Test-Path $ClaudeSettingsDir)) {
+    Write-Fail "Claude Code not found" "Please install Claude Code first: https://claude.ai/download`n`nAfter installing, run this installer again."
+}
+Write-Success "Claude Code found"
+
+# Check existing MCP config
+$McpConfig = "$ClaudeSettingsDir\claude_desktop_config.json"
+if (Test-Path $McpConfig) {
+    try {
+        $null = Get-Content $McpConfig | ConvertFrom-Json
+        Write-Success "MCP config valid"
+    } catch {
+        Write-Fail "Existing MCP config is malformed" "The file $McpConfig contains invalid JSON.`nPlease fix or remove it, then run this installer again."
+    }
+}
+
+Write-Host ""
+Write-Success "All pre-flight checks passed!"
+
+# === Create Lucid Directory ===
+
+$LucidDir = "$env:USERPROFILE\.lucid"
+$LucidBin = "$LucidDir\bin"
+
+Write-Host ""
+Write-Host "Creating Lucid Memory directory..."
+
+New-Item -ItemType Directory -Force -Path $LucidDir | Out-Null
+New-Item -ItemType Directory -Force -Path $LucidBin | Out-Null
+
+Write-Success "Created ~/.lucid"
+
+# === Install Lucid Server ===
+
+Write-Host ""
+Write-Host "Downloading Lucid Memory..."
+
+$TempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemType Directory -Path $_ }
+Push-Location $TempDir
+
+try {
+    git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>$null
+    if (-not $?) { throw "Clone failed" }
+} catch {
+    Write-Fail "Could not download Lucid Memory" "Please check your internet connection and try again."
+}
+
+# Copy the server
+$ServerSource = "lucid-memory\packages\lucid-server"
+if (Test-Path $ServerSource) {
+    if (Test-Path "$LucidDir\server") { Remove-Item -Recurse -Force "$LucidDir\server" }
+    Copy-Item -Recurse $ServerSource "$LucidDir\server"
+} else {
+    Write-Fail "Invalid repository structure" "The downloaded repository is missing required files."
+}
+
+Set-Location "$LucidDir\server"
+
+Write-Host "Installing dependencies..."
+try {
+    bun install --production 2>$null
+} catch {
+    Write-Fail "Failed to install dependencies" "Bun package installation failed. Check your internet connection."
+}
+
+# Create CLI wrapper (batch file for Windows)
+@"
+@echo off
+bun run "%USERPROFILE%\.lucid\server\src\cli.ts" %*
+"@ | Out-File -FilePath "$LucidBin\lucid.cmd" -Encoding ASCII
+
+# Create server launcher
+@"
+@echo off
+bun run "%USERPROFILE%\.lucid\server\src\server.ts" %*
+"@ | Out-File -FilePath "$LucidBin\lucid-server.cmd" -Encoding ASCII
+
+Write-Success "Lucid Memory installed"
+
+# === Embedding Provider ===
+
+Write-Host ""
+Write-Host "Embedding provider setup:" -ForegroundColor White
+Write-Host "  [1] Local (Ollama) - Free, private, runs on your machine"
+Write-Host "  [2] OpenAI API - Faster, requires API key (`$0.0001/query)"
+Write-Host ""
+$EmbedChoice = Read-Host "Choice [1]"
+if (-not $EmbedChoice) { $EmbedChoice = "1" }
+
+switch ($EmbedChoice) {
+    "2" {
+        Write-Host ""
+        $OpenAIKey = Read-Host "Enter OpenAI API key"
+        if (-not $OpenAIKey) {
+            Write-Fail "OpenAI API key is required" "Please run the installer again and provide a valid API key,`nor choose option 1 for local embeddings."
+        }
+        "OPENAI_API_KEY=$OpenAIKey" | Out-File -FilePath "$LucidDir\.env" -Encoding UTF8
+        Write-Success "OpenAI configured"
+    }
+    default {
+        Write-Host ""
+        Write-Host "Setting up Ollama..."
+
+        if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+            Write-Host "Installing Ollama..."
+            try {
+                # Download and run Ollama installer
+                $OllamaInstaller = "$env:TEMP\OllamaSetup.exe"
+                Invoke-WebRequest -Uri "https://ollama.ai/download/OllamaSetup.exe" -OutFile $OllamaInstaller
+                Start-Process -FilePath $OllamaInstaller -Wait
+                Remove-Item $OllamaInstaller -Force
+
+                # Refresh PATH
+                $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+            } catch {
+                Write-Fail "Ollama installation failed" "Please install Ollama manually: https://ollama.ai`nThen run this installer again."
+            }
+        }
+        Write-Success "Ollama installed"
+
+        # Ensure Ollama is running
+        Write-Host "Starting Ollama service..."
+        $OllamaProcess = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
+        if (-not $OllamaProcess) {
+            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
+            Start-Sleep -Seconds 3
+        }
+
+        # Verify it's running
+        $Retries = 5
+        $OllamaRunning = $false
+        while ($Retries -gt 0 -and -not $OllamaRunning) {
+            try {
+                $null = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 2
+                $OllamaRunning = $true
+            } catch {
+                Start-Sleep -Seconds 1
+                $Retries--
+            }
+        }
+
+        if (-not $OllamaRunning) {
+            Write-Fail "Could not start Ollama service" "Please start Ollama manually and run this installer again."
+        }
+        Write-Success "Ollama service running"
+
+        # Pull the embedding model
+        Write-Host "Downloading embedding model (this may take a few minutes)..."
+        try {
+            ollama pull nomic-embed-text
+        } catch {
+            Write-Fail "Failed to download embedding model" "Please try manually: ollama pull nomic-embed-text"
+        }
+        Write-Success "Embedding model ready"
+    }
+}
+
+# === Configure Claude Code ===
+
+Write-Host ""
+Write-Host "Configuring Claude Code..."
+
+$ServerPath = "$LucidBin\lucid-server.cmd"
+
+if (Test-Path $McpConfig) {
+    # Backup existing config
+    Copy-Item $McpConfig "$McpConfig.backup"
+    Write-Success "Backed up existing config"
+
+    # Add our server to existing config
+    $Config = Get-Content $McpConfig | ConvertFrom-Json
+    if (-not $Config.mcpServers) {
+        $Config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue @{}
+    }
+    $Config.mcpServers | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue @{
+        command = $ServerPath
+        args = @()
+    } -Force
+    $Config | ConvertTo-Json -Depth 10 | Out-File -FilePath $McpConfig -Encoding UTF8
+} else {
+    # Create new config
+    New-Item -ItemType Directory -Force -Path (Split-Path $McpConfig) | Out-Null
+    @{
+        mcpServers = @{
+            "lucid-memory" = @{
+                command = $ServerPath
+                args = @()
+            }
+        }
+    } | ConvertTo-Json -Depth 10 | Out-File -FilePath $McpConfig -Encoding UTF8
+}
+
+Write-Success "MCP server configured"
+
+# === Install Hooks ===
+
+Write-Host ""
+Write-Host "Installing memory hooks..."
+
+$HooksDir = "$ClaudeSettingsDir\hooks"
+New-Item -ItemType Directory -Force -Path $HooksDir | Out-Null
+
+# Copy hook script (convert to PowerShell version)
+$HookSource = "$LucidDir\server\hooks\user-prompt-submit.sh"
+if (Test-Path $HookSource) {
+    # Create a PowerShell version of the hook
+    @"
+# Lucid Memory - UserPromptSubmit Hook
+`$UserPrompt = `$input | Out-String
+if (`$UserPrompt.Length -lt 5) { exit 0 }
+
+`$LucidCli = "`$env:USERPROFILE\.lucid\bin\lucid.cmd"
+`$ProjectPath = if (`$env:CLAUDE_PROJECT_PATH) { `$env:CLAUDE_PROJECT_PATH } else { Get-Location }
+
+if (Test-Path `$LucidCli) {
+    & `$LucidCli context `$UserPrompt --project=`$ProjectPath 2>`$null
+}
+"@ | Out-File -FilePath "$HooksDir\UserPromptSubmit.ps1" -Encoding UTF8
+    Write-Success "Hooks installed"
+} else {
+    Write-Warn "Hook script not found - automatic context injection disabled"
+}
+
+# === Add to PATH ===
+
+$CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($CurrentPath -notlike "*$LucidBin*") {
+    [Environment]::SetEnvironmentVariable("PATH", "$LucidBin;$CurrentPath", "User")
+    $env:PATH = "$LucidBin;$env:PATH"
+    Write-Success "Added to PATH"
+}
+
+# === Cleanup ===
+
+Pop-Location
+Remove-Item -Recurse -Force $TempDir -ErrorAction SilentlyContinue
+
+# === Restart Claude Code ===
+
+Write-Host ""
+Write-Host "Restarting Claude Code to activate Lucid Memory..."
+
+$ClaudeProcess = Get-Process -Name "Claude*" -ErrorAction SilentlyContinue
+if ($ClaudeProcess) {
+    $ClaudeProcess | Stop-Process -Force
+    Start-Sleep -Seconds 2
+
+    # Try to restart Claude
+    $ClaudePath = "$env:LOCALAPPDATA\Programs\Claude\Claude.exe"
+    if (Test-Path $ClaudePath) {
+        Start-Process -FilePath $ClaudePath
+    }
+}
+
+# === Done! ===
+
+Write-Host ""
+Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green
+Write-Host "🎉 Lucid Memory installed successfully!" -ForegroundColor Green
+Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green
+Write-Host ""
+Write-Host "Claude Code is restarting with Lucid Memory enabled."
+Write-Host ""
+Write-Host "Just use Claude Code normally - your memories will"
+Write-Host "build automatically over time."
+Write-Host ""
+Write-Host "Troubleshooting:" -ForegroundColor White
+Write-Host "  lucid status    - Check if everything is working"
+Write-Host "  lucid stats     - View memory statistics"
+Write-Host ""

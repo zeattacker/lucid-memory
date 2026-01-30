@@ -36,18 +36,25 @@ Retrieval-Augmented Generation (RAG) treats memory like a search engine: embed y
 
 Install once. Claude Code remembers forever.
 
+**macOS / Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.sh | bash
 ```
 
-The wizard will:
-1. Download the lucid-memory binary
-2. Prompt for embedding preference (local Ollama vs API)
-3. Auto-detect existing MCP config
-4. Configure Claude Code to use lucid-memory
-5. Create the memory database in `~/.lucid/`
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.ps1 | iex
+```
 
-**Time to value:** Under 2 minutes. No manual configuration required.
+The installer will:
+1. Check prerequisites (git, disk space, etc.)
+2. Install Bun runtime if needed
+3. Set up Ollama for local embeddings (or OpenAI API)
+4. Configure Claude Code MCP settings
+5. Install hooks for automatic memory capture
+6. Restart Claude Code to activate
+
+**Requirements:** 5GB free disk space, Claude Code installed
 
 ### Manual Installation (for developers)
 

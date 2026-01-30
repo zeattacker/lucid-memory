@@ -6,12 +6,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.sh | bash
 #
 # What this does:
-#   1. Checks for Bun (required runtime)
-#   2. Creates ~/.lucid directory
-#   3. Downloads and installs lucid-server
-#   4. Optionally sets up Ollama for local embeddings
-#   5. Configures Claude Code MCP settings
-#   6. Installs hooks for automatic memory capture
+#   1. Checks all prerequisites (git, disk space, etc.)
+#   2. Installs Bun if needed
+#   3. Creates ~/.lucid directory
+#   4. Downloads and installs lucid-server
+#   5. Sets up Ollama for local embeddings (or OpenAI)
+#   6. Configures Claude Code MCP settings
+#   7. Installs hooks for automatic memory capture
+#   8. Restarts Claude Code to activate
 
 set -e
 
@@ -20,35 +22,295 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
+BOLD='\033[1m'
 NC='\033[0m' # No Color
+
+# Minimum disk space required (in KB) - 5GB
+MIN_DISK_SPACE=5242880
 
 echo -e "${BLUE}"
 echo "🧠 Lucid Memory Installer"
 echo "========================="
 echo -e "${NC}"
 
-# === Check Prerequisites ===
+# === Helper Functions ===
 
-echo "Checking system..."
+fail() {
+    echo -e "${RED}❌ Error: $1${NC}"
+    echo ""
+    if [ -n "$2" ]; then
+        echo -e "${YELLOW}$2${NC}"
+    fi
+    exit 1
+}
+
+warn() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+success() {
+    echo -e "${GREEN}✓ $1${NC}"
+}
+
+# Check if running on Windows (Git Bash, WSL, etc.)
+check_windows() {
+    if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "win32" ]]; then
+        fail "Windows detected" \
+            "Please use the PowerShell installer instead:\n  irm https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.ps1 | iex"
+    fi
+}
+
+# Get available disk space in KB
+get_available_space() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        df -k "$HOME" | awk 'NR==2 {print $4}'
+    else
+        df -k "$HOME" | awk 'NR==2 {print $4}'
+    fi
+}
+
+# Check if JSON is valid
+validate_json() {
+    if command -v python3 &> /dev/null; then
+        python3 -c "import json; json.load(open('$1'))" 2>/dev/null
+        return $?
+    elif command -v python &> /dev/null; then
+        python -c "import json; json.load(open('$1'))" 2>/dev/null
+        return $?
+    elif command -v jq &> /dev/null; then
+        jq empty "$1" 2>/dev/null
+        return $?
+    else
+        # Can't validate, assume it's fine
+        return 0
+    fi
+}
+
+# Add lucid-memory to MCP config (pure bash fallback)
+add_to_mcp_config() {
+    local config_file="$1"
+    local server_path="$2"
+
+    # If jq is available, use it (safest)
+    if command -v jq &> /dev/null; then
+        jq --arg cmd "$server_path" '.mcpServers["lucid-memory"] = {"command": $cmd, "args": []}' \
+            "$config_file" > "$config_file.tmp" && mv "$config_file.tmp" "$config_file"
+        return 0
+    fi
+
+    # If python is available, use it
+    if command -v python3 &> /dev/null; then
+        python3 << EOF
+import json
+with open('$config_file', 'r') as f:
+    config = json.load(f)
+if 'mcpServers' not in config:
+    config['mcpServers'] = {}
+config['mcpServers']['lucid-memory'] = {'command': '$server_path', 'args': []}
+with open('$config_file', 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+        return 0
+    fi
+
+    # Last resort: check if we can safely append
+    if grep -q '"mcpServers"' "$config_file"; then
+        warn "Cannot safely modify existing MCP config without jq or python"
+        echo ""
+        echo "Please manually add this to $config_file in the mcpServers section:"
+        echo -e "${BOLD}  \"lucid-memory\": { \"command\": \"$server_path\", \"args\": [] }${NC}"
+        echo ""
+        read -p "Press Enter after you've added it (or Ctrl+C to abort)..."
+    else
+        # No mcpServers key, we can write fresh
+        cat > "$config_file" << EOF
+{
+  "mcpServers": {
+    "lucid-memory": {
+      "command": "$server_path",
+      "args": []
+    }
+  }
+}
+EOF
+    fi
+}
+
+# Start Ollama service and ensure it persists
+ensure_ollama_running() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS - check if Ollama is running
+        if ! pgrep -x "ollama" > /dev/null && ! pgrep -f "Ollama" > /dev/null; then
+            echo "Starting Ollama..."
+            # Try to start Ollama app if installed via DMG
+            if [ -d "/Applications/Ollama.app" ]; then
+                open -a Ollama
+                sleep 3
+            else
+                # Start ollama serve in background
+                ollama serve &>/dev/null &
+                sleep 2
+            fi
+        fi
+
+        # Create launchd plist for auto-start
+        local plist_dir="$HOME/Library/LaunchAgents"
+        local plist_file="$plist_dir/com.lucid.ollama.plist"
+
+        mkdir -p "$plist_dir"
+
+        # Only create if Ollama was installed via CLI (not app)
+        if [ ! -d "/Applications/Ollama.app" ] && command -v ollama &> /dev/null; then
+            cat > "$plist_file" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lucid.ollama</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$(which ollama)</string>
+        <string>serve</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/ollama.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ollama.error.log</string>
+</dict>
+</plist>
+EOF
+            launchctl load "$plist_file" 2>/dev/null || true
+        fi
+    else
+        # Linux - use systemd if available
+        if command -v systemctl &> /dev/null; then
+            if ! systemctl is-active --quiet ollama 2>/dev/null; then
+                sudo systemctl start ollama 2>/dev/null || ollama serve &>/dev/null &
+                sleep 2
+            fi
+            # Enable on boot
+            sudo systemctl enable ollama 2>/dev/null || true
+        else
+            # Fallback: just start it
+            if ! pgrep -x "ollama" > /dev/null; then
+                ollama serve &>/dev/null &
+                sleep 2
+            fi
+        fi
+    fi
+
+    # Verify it's running
+    local retries=5
+    while [ $retries -gt 0 ]; do
+        if curl -s http://localhost:11434/api/tags &>/dev/null; then
+            return 0
+        fi
+        sleep 1
+        retries=$((retries - 1))
+    done
+
+    return 1
+}
+
+# Restart Claude Code
+restart_claude_code() {
+    echo ""
+    echo "Restarting Claude Code to activate Lucid Memory..."
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if pgrep -f "Claude" > /dev/null; then
+            osascript -e 'quit app "Claude"' 2>/dev/null || true
+            sleep 2
+            open -a "Claude" 2>/dev/null || true
+        fi
+    else
+        # Linux - try common locations
+        if pgrep -f "claude" > /dev/null; then
+            pkill -f "claude" 2>/dev/null || true
+            sleep 2
+            # Try to restart - location varies
+            if [ -f "/usr/bin/claude" ]; then
+                nohup /usr/bin/claude &>/dev/null &
+            elif [ -f "$HOME/.local/bin/claude" ]; then
+                nohup "$HOME/.local/bin/claude" &>/dev/null &
+            fi
+        fi
+    fi
+}
+
+# === Pre-flight Checks ===
+
+echo "Running pre-flight checks..."
+echo ""
+
+# Check for Windows
+check_windows
+
+# Check for git
+if ! command -v git &> /dev/null; then
+    fail "Git is not installed" \
+        "Please install Git first:\n  macOS: xcode-select --install\n  Ubuntu/Debian: sudo apt install git\n  Fedora: sudo dnf install git"
+fi
+success "Git installed"
+
+# Check for curl (should exist if running this script, but just in case)
+if ! command -v curl &> /dev/null; then
+    fail "curl is not installed" \
+        "Please install curl first:\n  Ubuntu/Debian: sudo apt install curl\n  Fedora: sudo dnf install curl"
+fi
+success "curl installed"
+
+# Check disk space
+AVAILABLE_SPACE=$(get_available_space)
+if [ "$AVAILABLE_SPACE" -lt "$MIN_DISK_SPACE" ]; then
+    AVAILABLE_GB=$((AVAILABLE_SPACE / 1048576))
+    fail "Insufficient disk space" \
+        "Lucid Memory requires at least 5GB of free space for the embedding model.\nAvailable: ${AVAILABLE_GB}GB"
+fi
+AVAILABLE_GB=$((AVAILABLE_SPACE / 1048576))
+success "Disk space OK (${AVAILABLE_GB}GB available)"
 
 # Check for Bun
 if ! command -v bun &> /dev/null; then
-    echo -e "${YELLOW}Bun not found. Installing Bun...${NC}"
+    echo ""
+    echo "Installing Bun..."
     curl -fsSL https://bun.sh/install | bash
     export PATH="$HOME/.bun/bin:$PATH"
+
+    # Verify installation
+    if ! command -v bun &> /dev/null; then
+        fail "Bun installation failed" \
+            "Please install Bun manually: https://bun.sh"
+    fi
 fi
-echo -e "${GREEN}✓ Bun $(bun --version)${NC}"
+success "Bun $(bun --version)"
 
 # Check for Claude Code
 CLAUDE_SETTINGS_DIR="$HOME/.claude"
 if [ ! -d "$CLAUDE_SETTINGS_DIR" ]; then
-    echo -e "${YELLOW}Claude Code settings directory not found.${NC}"
-    echo "Please install Claude Code first: https://claude.ai/download"
-    echo ""
-    echo "After installing, run this installer again."
-    exit 1
+    fail "Claude Code not found" \
+        "Please install Claude Code first: https://claude.ai/download\n\nAfter installing, run this installer again."
 fi
-echo -e "${GREEN}✓ Claude Code found${NC}"
+success "Claude Code found"
+
+# Check existing MCP config
+MCP_CONFIG="$CLAUDE_SETTINGS_DIR/claude_desktop_config.json"
+if [ -f "$MCP_CONFIG" ]; then
+    if ! validate_json "$MCP_CONFIG"; then
+        fail "Existing MCP config is malformed" \
+            "The file $MCP_CONFIG contains invalid JSON.\nPlease fix or remove it, then run this installer again."
+    fi
+    success "MCP config valid"
+fi
+
+echo ""
+success "All pre-flight checks passed!"
 
 # === Create Lucid Directory ===
 
@@ -61,31 +323,40 @@ echo "Creating Lucid Memory directory..."
 mkdir -p "$LUCID_DIR"
 mkdir -p "$LUCID_BIN"
 
+success "Created ~/.lucid"
+
 # === Install Lucid Server ===
 
 echo ""
-echo "Installing Lucid Memory..."
+echo "Downloading Lucid Memory..."
 
-# For now, we'll clone from the repo. In production, this would download a release.
 TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
 # Clone the repository (shallow clone for speed)
-git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>/dev/null || {
-    echo -e "${RED}Error: Could not download Lucid Memory${NC}"
-    echo "Please check your internet connection and try again."
-    exit 1
-}
+if ! git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>/dev/null; then
+    fail "Could not download Lucid Memory" \
+        "Please check your internet connection and try again."
+fi
 
-# If we cloned successfully, copy the server
+# Copy the server
 if [ -d "lucid-memory/packages/lucid-server" ]; then
+    rm -rf "$LUCID_DIR/server" 2>/dev/null || true
     cp -r "lucid-memory/packages/lucid-server" "$LUCID_DIR/server"
+else
+    fail "Invalid repository structure" \
+        "The downloaded repository is missing required files."
 fi
 
 cd "$LUCID_DIR/server"
-bun install --production 2>/dev/null
 
-# Create CLI symlink
+echo "Installing dependencies..."
+if ! bun install --production 2>/dev/null; then
+    fail "Failed to install dependencies" \
+        "Bun package installation failed. Check your internet connection."
+fi
+
+# Create CLI wrapper
 cat > "$LUCID_BIN/lucid" << 'EOF'
 #!/bin/bash
 exec bun run "$HOME/.lucid/server/src/cli.ts" "$@"
@@ -99,48 +370,58 @@ exec bun run "$HOME/.lucid/server/src/server.ts" "$@"
 EOF
 chmod +x "$LUCID_BIN/lucid-server"
 
-echo -e "${GREEN}✓ Lucid Memory installed${NC}"
+success "Lucid Memory installed"
 
 # === Embedding Provider ===
 
 echo ""
-echo "Embedding provider setup:"
-echo "  [1] Local (Ollama) - Free, private, requires ~4GB disk"
-echo "  [2] OpenAI API - Fast, requires API key"
+echo -e "${BOLD}Embedding provider setup:${NC}"
+echo "  [1] Local (Ollama) - Free, private, runs on your machine"
+echo "  [2] OpenAI API - Faster, requires API key (\$0.0001/query)"
 echo ""
 read -p "Choice [1]: " EMBED_CHOICE
 EMBED_CHOICE=${EMBED_CHOICE:-1}
 
 case $EMBED_CHOICE in
-    1)
-        if ! command -v ollama &> /dev/null; then
-            echo "Installing Ollama..."
-            curl -fsSL https://ollama.ai/install.sh | sh
-        fi
-        echo "Pulling nomic-embed-text model..."
-        ollama pull nomic-embed-text 2>/dev/null || {
-            echo -e "${YELLOW}Note: Ollama pull deferred. Run 'ollama pull nomic-embed-text' when ready.${NC}"
-        }
-        echo -e "${GREEN}✓ Ollama configured${NC}"
-        ;;
     2)
         echo ""
         read -p "Enter OpenAI API key: " OPENAI_KEY
-        if [ -n "$OPENAI_KEY" ]; then
-            echo "OPENAI_API_KEY=$OPENAI_KEY" >> "$LUCID_DIR/.env"
-            echo -e "${GREEN}✓ OpenAI configured${NC}"
-        else
-            echo -e "${RED}No API key provided. Please set OPENAI_API_KEY in ~/.lucid/.env${NC}"
+        if [ -z "$OPENAI_KEY" ]; then
+            fail "OpenAI API key is required" \
+                "Please run the installer again and provide a valid API key,\nor choose option 1 for local embeddings."
         fi
+        echo "OPENAI_API_KEY=$OPENAI_KEY" > "$LUCID_DIR/.env"
+        success "OpenAI configured"
         ;;
     *)
-        echo -e "${YELLOW}Invalid choice. Defaulting to Ollama...${NC}"
+        # Default to Ollama
+        echo ""
+        echo "Setting up Ollama..."
+
         if ! command -v ollama &> /dev/null; then
             echo "Installing Ollama..."
-            curl -fsSL https://ollama.ai/install.sh | sh
+            if ! curl -fsSL https://ollama.ai/install.sh | sh; then
+                fail "Ollama installation failed" \
+                    "Please install Ollama manually: https://ollama.ai\nThen run this installer again."
+            fi
         fi
-        ollama pull nomic-embed-text 2>/dev/null || true
-        echo -e "${GREEN}✓ Ollama configured${NC}"
+        success "Ollama installed"
+
+        # Ensure Ollama is running
+        echo "Starting Ollama service..."
+        if ! ensure_ollama_running; then
+            fail "Could not start Ollama service" \
+                "Please start Ollama manually and run this installer again:\n  ollama serve"
+        fi
+        success "Ollama service running"
+
+        # Pull the embedding model
+        echo "Downloading embedding model (this may take a few minutes)..."
+        if ! ollama pull nomic-embed-text; then
+            fail "Failed to download embedding model" \
+                "Please try manually: ollama pull nomic-embed-text"
+        fi
+        success "Embedding model ready"
         ;;
 esac
 
@@ -149,24 +430,13 @@ esac
 echo ""
 echo "Configuring Claude Code..."
 
-MCP_CONFIG="$CLAUDE_SETTINGS_DIR/claude_desktop_config.json"
-
-# Check if config exists
+# Backup existing config
 if [ -f "$MCP_CONFIG" ]; then
-    # Backup existing config
     cp "$MCP_CONFIG" "$MCP_CONFIG.backup"
+    success "Backed up existing config"
 
-    # Add lucid-memory server using jq if available, otherwise simple append
-    if command -v jq &> /dev/null; then
-        jq '.mcpServers["lucid-memory"] = {
-            "command": "'"$LUCID_BIN/lucid-server"'",
-            "args": []
-        }' "$MCP_CONFIG" > "$MCP_CONFIG.tmp" && mv "$MCP_CONFIG.tmp" "$MCP_CONFIG"
-    else
-        echo -e "${YELLOW}Note: Please manually add lucid-memory to your Claude Code MCP config${NC}"
-        echo "Add this to $MCP_CONFIG:"
-        echo '  "lucid-memory": { "command": "'$LUCID_BIN'/lucid-server", "args": [] }'
-    fi
+    # Add our server to existing config
+    add_to_mcp_config "$MCP_CONFIG" "$LUCID_BIN/lucid-server"
 else
     # Create new config
     mkdir -p "$(dirname "$MCP_CONFIG")"
@@ -182,39 +452,42 @@ else
 EOF
 fi
 
-echo -e "${GREEN}✓ Claude Code configured${NC}"
+success "MCP server configured"
 
-# === Install Hooks (Optional) ===
+# === Install Hooks ===
 
 echo ""
-read -p "Install hooks for automatic context injection? [Y/n]: " INSTALL_HOOKS
-INSTALL_HOOKS=${INSTALL_HOOKS:-Y}
+echo "Installing memory hooks..."
 
-if [[ $INSTALL_HOOKS =~ ^[Yy]$ ]]; then
-    HOOKS_DIR="$CLAUDE_SETTINGS_DIR/hooks"
-    mkdir -p "$HOOKS_DIR"
+HOOKS_DIR="$CLAUDE_SETTINGS_DIR/hooks"
+mkdir -p "$HOOKS_DIR"
 
-    # Copy hook script
+# Copy hook script
+if [ -f "$LUCID_DIR/server/hooks/user-prompt-submit.sh" ]; then
     cp "$LUCID_DIR/server/hooks/user-prompt-submit.sh" "$HOOKS_DIR/UserPromptSubmit.sh"
     chmod +x "$HOOKS_DIR/UserPromptSubmit.sh"
-
-    echo -e "${GREEN}✓ Hooks installed${NC}"
+    success "Hooks installed"
+else
+    warn "Hook script not found - automatic context injection disabled"
 fi
 
 # === Add to PATH ===
 
-echo ""
 SHELL_CONFIG=""
 if [ -f "$HOME/.zshrc" ]; then
     SHELL_CONFIG="$HOME/.zshrc"
 elif [ -f "$HOME/.bashrc" ]; then
     SHELL_CONFIG="$HOME/.bashrc"
+elif [ -f "$HOME/.bash_profile" ]; then
+    SHELL_CONFIG="$HOME/.bash_profile"
 fi
 
 if [ -n "$SHELL_CONFIG" ]; then
-    if ! grep -q "/.lucid/bin" "$SHELL_CONFIG"; then
+    if ! grep -q "/.lucid/bin" "$SHELL_CONFIG" 2>/dev/null; then
+        echo '' >> "$SHELL_CONFIG"
+        echo '# Lucid Memory' >> "$SHELL_CONFIG"
         echo 'export PATH="$HOME/.lucid/bin:$PATH"' >> "$SHELL_CONFIG"
-        echo -e "${GREEN}✓ Added to PATH in $SHELL_CONFIG${NC}"
+        success "Added to PATH"
     fi
 fi
 
@@ -222,18 +495,23 @@ fi
 
 rm -rf "$TEMP_DIR"
 
+# === Restart Claude Code ===
+
+restart_claude_code
+
 # === Done! ===
 
 echo ""
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}🎉 Lucid Memory installed successfully!${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo "Next steps:"
-echo "  1. Restart Claude Code to load the new MCP server"
-echo "  2. Start using Claude Code normally - memories build automatically"
-echo "  3. Run 'lucid status' to check memory stats"
+echo "Claude Code is restarting with Lucid Memory enabled."
 echo ""
-echo "Commands:"
-echo "  lucid status        - Check system status"
-echo "  lucid stats         - View memory statistics"
-echo "  lucid context       - Get context for a task"
+echo "Just use Claude Code normally - your memories will"
+echo "build automatically over time."
+echo ""
+echo -e "${BOLD}Troubleshooting:${NC}"
+echo "  lucid status    - Check if everything is working"
+echo "  lucid stats     - View memory statistics"
 echo ""
