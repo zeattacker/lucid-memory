@@ -115,8 +115,8 @@ pub mod retrieval;
 pub mod spreading;
 
 pub use activation::{
-    combine_activations, compute_base_level, cosine_similarity, nonlinear_activation,
-    retrieval_probability, ActivationBreakdown, ActivationConfig,
+	combine_activations, compute_base_level, cosine_similarity, nonlinear_activation,
+	retrieval_probability, ActivationBreakdown, ActivationConfig,
 };
 pub use retrieval::{retrieve, RetrievalCandidate, RetrievalConfig, RetrievalInput};
 pub use spreading::{spread_activation, Association, SpreadingConfig, SpreadingResult};
@@ -127,43 +127,43 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Initialize the library (placeholder for future setup).
 #[must_use]
 pub const fn init() -> &'static str {
-    "lucid-core initialized"
+	"lucid-core initialized"
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+	use super::*;
 
-    #[test]
-    fn test_basic_retrieval() {
-        let memories = vec![
-            vec![1.0, 0.0, 0.0],
-            vec![0.0, 1.0, 0.0],
-            vec![0.0, 0.0, 1.0],
-        ];
-        let probe = vec![1.0, 0.0, 0.0];
-        let now = 10000.0;
+	#[test]
+	fn test_basic_retrieval() {
+		let memories = vec![
+			vec![1.0, 0.0, 0.0],
+			vec![0.0, 1.0, 0.0],
+			vec![0.0, 0.0, 1.0],
+		];
+		let probe = vec![1.0, 0.0, 0.0];
+		let now = 10000.0;
 
-        let input = RetrievalInput {
-            probe_embedding: &probe,
-            memory_embeddings: &memories,
-            access_histories_ms: &[vec![now - 1000.0], vec![now - 2000.0], vec![now - 3000.0]],
-            emotional_weights: &[0.5, 0.5, 0.5],
-            decay_rates: &[0.5, 0.5, 0.5],
-            associations: &[],
-            current_time_ms: now,
-        };
+		let input = RetrievalInput {
+			probe_embedding: &probe,
+			memory_embeddings: &memories,
+			access_histories_ms: &[vec![now - 1000.0], vec![now - 2000.0], vec![now - 3000.0]],
+			emotional_weights: &[0.5, 0.5, 0.5],
+			decay_rates: &[0.5, 0.5, 0.5],
+			associations: &[],
+			current_time_ms: now,
+		};
 
-        let config = RetrievalConfig {
-            min_probability: 0.0,
-            ..Default::default()
-        };
+		let config = RetrievalConfig {
+			min_probability: 0.0,
+			..Default::default()
+		};
 
-        let results = retrieve(&input, &config);
+		let results = retrieve(&input, &config);
 
-        // First result should match the probe
-        assert!(!results.is_empty());
-        assert_eq!(results[0].index, 0);
-        assert!(results[0].probe_activation > results[1].probe_activation);
-    }
+		// First result should match the probe
+		assert!(!results.is_empty());
+		assert_eq!(results[0].index, 0);
+		assert!(results[0].probe_activation > results[1].probe_activation);
+	}
 }
