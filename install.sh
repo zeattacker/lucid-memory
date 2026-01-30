@@ -18,7 +18,9 @@
 set -e
 
 # Reconnect stdin to terminal for interactive prompts (needed when piped via curl | bash)
-exec < /dev/tty || true
+if [ -e /dev/tty ] && [ -r /dev/tty ]; then
+    exec < /dev/tty
+fi
 
 # Colors - Gradient palette (purple → blue → cyan)
 RED='\033[0;31m'
@@ -457,8 +459,15 @@ echo -e "${BOLD}Embedding provider setup:${NC}"
 echo "  [1] Local (Ollama) - Free, private, runs on your machine (recommended)"
 echo "  [2] OpenAI API - Faster, requires API key (\$0.0001/query)"
 echo ""
-read -p "Choice [1]: " EMBED_CHOICE
-EMBED_CHOICE=${EMBED_CHOICE:-1}
+
+# Check if we can read from stdin (interactive mode)
+if [ -t 0 ]; then
+    read -p "Choice [1]: " EMBED_CHOICE
+    EMBED_CHOICE=${EMBED_CHOICE:-1}
+else
+    echo "Non-interactive mode detected, defaulting to Ollama..."
+    EMBED_CHOICE=1
+fi
 
 case $EMBED_CHOICE in
     2)
@@ -485,12 +494,18 @@ case $EMBED_CHOICE in
                 if ! command -v brew &> /dev/null; then
                     echo ""
                     echo "Homebrew is required to install Ollama on macOS."
-                    read -p "Install Homebrew now? [Y/n]: " INSTALL_BREW
-                    INSTALL_BREW=${INSTALL_BREW:-Y}
+
+                    if [ -t 0 ]; then
+                        read -p "Install Homebrew now? [Y/n]: " INSTALL_BREW
+                        INSTALL_BREW=${INSTALL_BREW:-Y}
+                    else
+                        echo "Non-interactive mode, auto-installing Homebrew..."
+                        INSTALL_BREW="Y"
+                    fi
 
                     if [[ "$INSTALL_BREW" =~ ^[Yy]$ ]]; then
                         echo "Installing Homebrew..."
-                        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+                        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
                         # Add brew to PATH for this session
                         if [[ -f "/opt/homebrew/bin/brew" ]]; then
