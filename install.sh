@@ -17,21 +17,92 @@
 
 set -e
 
-# Colors
+# Colors - Gradient palette (purple → blue → cyan)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
+DIM='\033[2m'
+
+# Gradient colors for the banner
+C1='\033[38;5;99m'   # Purple
+C2='\033[38;5;105m'  # Light purple
+C3='\033[38;5;111m'  # Purple-blue
+C4='\033[38;5;117m'  # Blue
+C5='\033[38;5;123m'  # Light blue
+C6='\033[38;5;159m'  # Cyan
 
 # Minimum disk space required (in KB) - 5GB
 MIN_DISK_SPACE=5242880
 
-echo -e "${BLUE}"
-echo "🧠 Lucid Memory Installer"
-echo "========================="
-echo -e "${NC}"
+# Installation steps for progress tracking
+TOTAL_STEPS=7
+CURRENT_STEP=0
+
+# === Visual Functions ===
+
+show_banner() {
+    echo ""
+    echo -e "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
+    echo -e "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
+    echo -e "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    echo -e "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    echo -e "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
+    echo -e "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
+    echo -e "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
+    echo ""
+    echo -e "  ${DIM}Claude Code that remembers.${NC}"
+    echo ""
+}
+
+# Spinner animation for long-running tasks
+spinner() {
+    local pid=$1
+    local message=$2
+    local spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+
+    tput civis 2>/dev/null || true  # Hide cursor
+    while kill -0 "$pid" 2>/dev/null; do
+        i=$(( (i + 1) % ${#spin} ))
+        printf "\r    ${C4}${spin:$i:1}${NC} ${message}"
+        sleep 0.1
+    done
+    tput cnorm 2>/dev/null || true  # Show cursor
+    printf "\r"
+}
+
+# Progress bar
+show_progress() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    local percent=$((CURRENT_STEP * 100 / TOTAL_STEPS))
+    local filled=$((CURRENT_STEP * 30 / TOTAL_STEPS))
+    local empty=$((30 - filled))
+
+    local bar="${C4}"
+    for ((i=0; i<filled; i++)); do bar+="█"; done
+    bar+="${DIM}"
+    for ((i=0; i<empty; i++)); do bar+="░"; done
+    bar+="${NC}"
+
+    echo -e "\n    ${bar} ${DIM}${percent}%${NC}\n"
+}
+
+# Run command with spinner
+run_with_spinner() {
+    local message=$1
+    shift
+
+    "$@" &>/dev/null &
+    local pid=$!
+    spinner $pid "$message"
+    wait $pid
+    return $?
+}
+
+show_banner
 
 # === Helper Functions ===
 
@@ -311,6 +382,7 @@ fi
 
 echo ""
 success "All pre-flight checks passed!"
+show_progress  # Step 1: Pre-flight checks
 
 # === Create Lucid Directory ===
 
@@ -324,6 +396,7 @@ mkdir -p "$LUCID_DIR"
 mkdir -p "$LUCID_BIN"
 
 success "Created ~/.lucid"
+show_progress  # Step 2: Create directory
 
 # === Install Lucid Server ===
 
@@ -334,9 +407,10 @@ TEMP_DIR=$(mktemp -d)
 cd "$TEMP_DIR"
 
 # Clone the repository (shallow clone for speed)
-if ! git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>/dev/null; then
+# GIT_TERMINAL_PROMPT=0 prevents git from asking for credentials if repo not found
+if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>/dev/null; then
     fail "Could not download Lucid Memory" \
-        "Please check your internet connection and try again."
+        "Please check your internet connection and try again.\n\nIf the problem persists, the repository may not be available yet.\nVisit: https://github.com/JasonDocton/lucid-memory"
 fi
 
 # Copy the server
@@ -371,6 +445,7 @@ chmod +x "$LUCID_BIN/lucid-server"
 mkdir -p "$LUCID_DIR/logs"
 
 success "Lucid Memory installed"
+show_progress  # Step 3: Install server
 
 # === Embedding Provider ===
 
@@ -400,9 +475,9 @@ case $EMBED_CHOICE in
 
         if ! command -v ollama &> /dev/null; then
             echo "Installing Ollama..."
-            if ! curl -fsSL https://ollama.ai/install.sh | sh; then
+            if ! curl -fsSL https://ollama.com/install.sh | sh; then
                 fail "Ollama installation failed" \
-                    "Please install Ollama manually: https://ollama.ai\nThen run this installer again."
+                    "Please install Ollama manually: https://ollama.com\nThen run this installer again."
             fi
         fi
         success "Ollama installed"
@@ -424,6 +499,7 @@ case $EMBED_CHOICE in
         success "Embedding model ready"
         ;;
 esac
+show_progress  # Step 4: Embedding provider
 
 # === Configure Claude Code ===
 
@@ -453,6 +529,7 @@ EOF
 fi
 
 success "MCP server configured"
+show_progress  # Step 5: Configure Claude Code
 
 # === Install Hooks ===
 
@@ -490,6 +567,7 @@ if [ -n "$SHELL_CONFIG" ]; then
         success "Added to PATH"
     fi
 fi
+show_progress  # Step 6: Install hooks & PATH
 
 # === Cleanup ===
 
@@ -498,20 +576,17 @@ rm -rf "$TEMP_DIR"
 # === Restart Claude Code ===
 
 restart_claude_code
+show_progress  # Step 7: Restart Claude Code
 
 # === Done! ===
 
 echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}🎉 Lucid Memory installed successfully!${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${GREEN}✓${NC} ${BOLD}Lucid Memory installed successfully!${NC}"
 echo ""
-echo "Claude Code is restarting with Lucid Memory enabled."
+echo -e "  Claude Code is restarting with Lucid Memory enabled."
+echo -e "  Just use Claude normally - your memories build automatically."
 echo ""
-echo "Just use Claude Code normally - your memories will"
-echo "build automatically over time."
-echo ""
-echo -e "${BOLD}Troubleshooting:${NC}"
-echo "  lucid status    - Check if everything is working"
-echo "  lucid stats     - View memory statistics"
+echo -e "  ${DIM}Troubleshooting:${NC}"
+echo -e "  ${C4}lucid status${NC}  - Check if everything is working"
+echo -e "  ${C4}lucid stats${NC}   - View memory statistics"
 echo ""

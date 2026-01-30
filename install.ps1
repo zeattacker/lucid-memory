@@ -15,8 +15,15 @@
 
 $ErrorActionPreference = "Stop"
 
+# Enable ANSI colors in Windows Terminal
+$PSStyle.OutputRendering = 'Ansi' 2>$null
+
 # Minimum disk space required (in bytes) - 5GB
 $MIN_DISK_SPACE = 5GB
+
+# Progress tracking
+$script:TotalSteps = 7
+$script:CurrentStep = 0
 
 # Colors for output
 function Write-Success { param($Message) Write-Host "✓ $Message" -ForegroundColor Green }
@@ -28,10 +35,48 @@ function Write-Fail {
     exit 1
 }
 
-Write-Host ""
-Write-Host "🧠 Lucid Memory Installer" -ForegroundColor Blue
-Write-Host "=========================" -ForegroundColor Blue
-Write-Host ""
+function Show-Banner {
+    $e = [char]27
+    $C1 = "$e[38;5;99m"   # Purple
+    $C2 = "$e[38;5;105m"  # Light purple
+    $C3 = "$e[38;5;111m"  # Purple-blue
+    $C4 = "$e[38;5;117m"  # Blue
+    $C5 = "$e[38;5;123m"  # Light blue
+    $C6 = "$e[38;5;159m"  # Cyan
+    $NC = "$e[0m"
+    $DIM = "$e[2m"
+
+    Write-Host ""
+    Write-Host "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
+    Write-Host "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
+    Write-Host "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    Write-Host "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    Write-Host "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
+    Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
+    Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
+    Write-Host ""
+    Write-Host "  ${DIM}Claude Code that remembers.${NC}"
+    Write-Host ""
+}
+
+function Show-Progress {
+    $e = [char]27
+    $C4 = "$e[38;5;117m"
+    $DIM = "$e[2m"
+    $NC = "$e[0m"
+
+    $script:CurrentStep++
+    $percent = [math]::Floor($script:CurrentStep * 100 / $script:TotalSteps)
+    $filled = [math]::Floor($script:CurrentStep * 30 / $script:TotalSteps)
+    $empty = 30 - $filled
+
+    $bar = "${C4}" + ("█" * $filled) + "${DIM}" + ("░" * $empty) + "${NC}"
+    Write-Host ""
+    Write-Host "    $bar ${DIM}${percent}%${NC}"
+    Write-Host ""
+}
+
+Show-Banner
 
 # === Pre-flight Checks ===
 
@@ -88,6 +133,7 @@ if (Test-Path $McpConfig) {
 
 Write-Host ""
 Write-Success "All pre-flight checks passed!"
+Show-Progress  # Step 1: Pre-flight checks
 
 # === Create Lucid Directory ===
 
@@ -101,6 +147,7 @@ New-Item -ItemType Directory -Force -Path $LucidDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LucidBin | Out-Null
 
 Write-Success "Created ~/.lucid"
+Show-Progress  # Step 2: Create directory
 
 # === Install Lucid Server ===
 
@@ -111,10 +158,12 @@ $TempDir = New-TemporaryFile | ForEach-Object { Remove-Item $_; New-Item -ItemTy
 Push-Location $TempDir
 
 try {
+    # Prevent git from prompting for credentials if repo not found
+    $env:GIT_TERMINAL_PROMPT = "0"
     git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>$null
     if (-not $?) { throw "Clone failed" }
 } catch {
-    Write-Fail "Could not download Lucid Memory" "Please check your internet connection and try again."
+    Write-Fail "Could not download Lucid Memory" "Please check your internet connection and try again.`n`nIf the problem persists, the repository may not be available yet.`nVisit: https://github.com/JasonDocton/lucid-memory"
 }
 
 # Copy the server
@@ -151,6 +200,7 @@ powershell -ExecutionPolicy Bypass -File "%USERPROFILE%\.lucid\server\bin\lucid-
 New-Item -ItemType Directory -Force -Path "$LucidDir\logs" | Out-Null
 
 Write-Success "Lucid Memory installed"
+Show-Progress  # Step 3: Install server
 
 # === Embedding Provider ===
 
@@ -181,14 +231,14 @@ switch ($EmbedChoice) {
             try {
                 # Download and run Ollama installer
                 $OllamaInstaller = "$env:TEMP\OllamaSetup.exe"
-                Invoke-WebRequest -Uri "https://ollama.ai/download/OllamaSetup.exe" -OutFile $OllamaInstaller
+                Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $OllamaInstaller
                 Start-Process -FilePath $OllamaInstaller -Wait
                 Remove-Item $OllamaInstaller -Force
 
                 # Refresh PATH
                 $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
             } catch {
-                Write-Fail "Ollama installation failed" "Please install Ollama manually: https://ollama.ai`nThen run this installer again."
+                Write-Fail "Ollama installation failed" "Please install Ollama manually: https://ollama.com`nThen run this installer again."
             }
         }
         Write-Success "Ollama installed"
@@ -248,6 +298,7 @@ switch ($EmbedChoice) {
         Write-Success "Embedding model ready"
     }
 }
+Show-Progress  # Step 4: Embedding provider
 
 # === Configure Claude Code ===
 
@@ -285,6 +336,7 @@ if (Test-Path $McpConfig) {
 }
 
 Write-Success "MCP server configured"
+Show-Progress  # Step 5: Configure Claude Code
 
 # === Install Hooks ===
 
@@ -323,6 +375,7 @@ if ($CurrentPath -notlike "*$LucidBin*") {
     $env:PATH = "$LucidBin;$env:PATH"
     Write-Success "Added to PATH"
 }
+Show-Progress  # Step 6: Install hooks & PATH
 
 # === Cleanup ===
 
@@ -345,20 +398,24 @@ if ($ClaudeProcess) {
         Start-Process -FilePath $ClaudePath
     }
 }
+Show-Progress  # Step 7: Restart Claude Code
 
 # === Done! ===
 
+$e = [char]27
+$C4 = "$e[38;5;117m"
+$NC = "$e[0m"
+$DIM = "$e[2m"
+$GREEN = "$e[0;32m"
+$BOLD = "$e[1m"
+
 Write-Host ""
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green
-Write-Host "🎉 Lucid Memory installed successfully!" -ForegroundColor Green
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Green
+Write-Host "  ${GREEN}✓${NC} ${BOLD}Lucid Memory installed successfully!${NC}"
 Write-Host ""
-Write-Host "Claude Code is restarting with Lucid Memory enabled."
+Write-Host "  Claude Code is restarting with Lucid Memory enabled."
+Write-Host "  Just use Claude normally - your memories build automatically."
 Write-Host ""
-Write-Host "Just use Claude Code normally - your memories will"
-Write-Host "build automatically over time."
-Write-Host ""
-Write-Host "Troubleshooting:" -ForegroundColor White
-Write-Host "  lucid status    - Check if everything is working"
-Write-Host "  lucid stats     - View memory statistics"
+Write-Host "  ${DIM}Troubleshooting:${NC}"
+Write-Host "  ${C4}lucid status${NC}  - Check if everything is working"
+Write-Host "  ${C4}lucid stats${NC}   - View memory statistics"
 Write-Host ""

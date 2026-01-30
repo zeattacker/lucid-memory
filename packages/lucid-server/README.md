@@ -5,7 +5,7 @@
 Install once. Use Claude Code normally. It remembers.
 
 ```bash
-curl -fsSL https://lucidmemory.dev/install | bash
+curl -fsSL https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.sh | bash
 ```
 
 That's it. Restart Claude Code and it just... works.
@@ -15,12 +15,14 @@ That's it. Restart Claude Code and it just... works.
 ## The Experience
 
 **Before:**
+
 ```
 You: "Remember that bug we fixed in the auth module?"
 Claude: "I don't have context from previous conversations..."
 ```
 
 **After:**
+
 ```
 You: "Remember that bug we fixed in the auth module?"
 Claude: "Yes - the race condition in the session refresh. We fixed it
@@ -93,7 +95,7 @@ But you probably won't need these. The point is that you don't have to think abo
 ## Development
 
 ```bash
-git clone https://github.com/jasondocton/lucid-memory
+git clone https://github.com/JasonDocton/lucid-memory
 cd lucid-memory/packages/lucid-server
 bun install
 bun test
