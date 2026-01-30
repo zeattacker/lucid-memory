@@ -439,27 +439,73 @@ if [ -d "lucid-memory/packages/lucid-native" ]; then
     cp -r "lucid-memory/packages/lucid-native" "$LUCID_DIR/native"
 fi
 
-# Copy Rust crates for building
-if [ -d "lucid-memory/crates" ]; then
-    rm -rf "$LUCID_DIR/crates" 2>/dev/null || true
-    cp -r "lucid-memory/crates" "$LUCID_DIR/crates"
-    cp "lucid-memory/Cargo.toml" "$LUCID_DIR/Cargo.toml"
-    cp "lucid-memory/Cargo.lock" "$LUCID_DIR/Cargo.lock" 2>/dev/null || true
+# Detect platform for pre-built binaries
+detect_native_binary() {
+    local arch=$(uname -m)
+    local os=$(uname -s)
+
+    case "$os" in
+        Darwin)
+            if [ "$arch" = "arm64" ]; then
+                echo "lucid-native.darwin-arm64.node"
+            else
+                echo "lucid-native.darwin-x64.node"
+            fi
+            ;;
+        Linux)
+            if [ "$arch" = "aarch64" ]; then
+                echo "lucid-native.linux-arm64-gnu.node"
+            else
+                echo "lucid-native.linux-x64-gnu.node"
+            fi
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+NATIVE_BINARY=$(detect_native_binary)
+NATIVE_READY=false
+
+# Check if pre-built binary exists in the repo
+if [ -n "$NATIVE_BINARY" ] && [ -f "$LUCID_DIR/native/$NATIVE_BINARY" ]; then
+    success "Pre-built native binary found ($NATIVE_BINARY)"
+    NATIVE_READY=true
 fi
 
-# Build native module if Rust is available
-NATIVE_BUILT=false
-if command -v cargo &> /dev/null; then
-    echo "Building native Rust module (this gives you 100x faster retrieval)..."
-    cd "$LUCID_DIR/native"
+# If no pre-built binary, try to download from latest release
+if [ "$NATIVE_READY" = false ] && [ -n "$NATIVE_BINARY" ]; then
+    echo "Downloading pre-built native binary..."
+    RELEASE_URL="https://github.com/JasonDocton/lucid-memory/releases/latest/download/$NATIVE_BINARY"
+    if curl -fsSL "$RELEASE_URL" -o "$LUCID_DIR/native/$NATIVE_BINARY" 2>/dev/null; then
+        chmod +x "$LUCID_DIR/native/$NATIVE_BINARY"
+        success "Downloaded native binary"
+        NATIVE_READY=true
+    else
+        echo "  No pre-built binary available for download"
+    fi
+fi
 
-    # Update the manifest path for installed location
-    # In dev: ../../crates/lucid-napi/Cargo.toml
-    # Installed: ../crates/lucid-napi/Cargo.toml
-    if command -v jq &> /dev/null; then
-        jq '.scripts.build = "napi build --platform --release --manifest-path ../crates/lucid-napi/Cargo.toml --output-dir ."' package.json > package.json.tmp && mv package.json.tmp package.json
-    elif command -v python3 &> /dev/null; then
-        python3 << 'PYEOF'
+# If still no binary, try to build with Rust
+if [ "$NATIVE_READY" = false ]; then
+    # Copy Rust crates for building
+    if [ -d "lucid-memory/crates" ]; then
+        rm -rf "$LUCID_DIR/crates" 2>/dev/null || true
+        cp -r "lucid-memory/crates" "$LUCID_DIR/crates"
+        cp "lucid-memory/Cargo.toml" "$LUCID_DIR/Cargo.toml"
+        cp "lucid-memory/Cargo.lock" "$LUCID_DIR/Cargo.lock" 2>/dev/null || true
+    fi
+
+    if command -v cargo &> /dev/null; then
+        echo "Building native Rust module (this gives you 100x faster retrieval)..."
+        cd "$LUCID_DIR/native"
+
+        # Update the manifest path for installed location
+        if command -v jq &> /dev/null; then
+            jq '.scripts.build = "napi build --platform --release --manifest-path ../crates/lucid-napi/Cargo.toml --output-dir ."' package.json > package.json.tmp && mv package.json.tmp package.json
+        elif command -v python3 &> /dev/null; then
+            python3 << 'PYEOF'
 import json
 with open('package.json', 'r') as f:
     pkg = json.load(f)
@@ -467,23 +513,26 @@ pkg['scripts']['build'] = 'napi build --platform --release --manifest-path ../cr
 with open('package.json', 'w') as f:
     json.dump(pkg, f, indent=2)
 PYEOF
-    fi
+        fi
 
-    # Install napi-rs CLI if needed
-    if ! bun install 2>/dev/null; then
-        warn "Failed to install napi-rs CLI"
-    else
-        # Build the native module
-        if bun run build 2>/dev/null; then
-            NATIVE_BUILT=true
+        # Install napi-rs CLI and build
+        if bun install 2>/dev/null && bun run build 2>/dev/null; then
+            NATIVE_READY=true
             success "Native Rust module built"
         else
-            warn "Native build failed - falling back to TypeScript (still works, just slower)"
+            warn "Native build failed"
         fi
+        cd "$LUCID_DIR"
+    else
+        warn "Rust not installed"
     fi
-    cd "$LUCID_DIR"
+fi
+
+# Final status
+if [ "$NATIVE_READY" = true ]; then
+    success "Native module ready (100x faster retrieval)"
 else
-    warn "Rust not installed - using TypeScript fallback (still works, just slower)"
+    warn "Using TypeScript fallback (still works, just slower)"
     echo "  To get 100x faster retrieval, install Rust: https://rustup.rs"
 fi
 
