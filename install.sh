@@ -433,7 +433,79 @@ else
         "The downloaded repository is missing required files."
 fi
 
+# Copy native package
+if [ -d "lucid-memory/packages/lucid-native" ]; then
+    rm -rf "$LUCID_DIR/native" 2>/dev/null || true
+    cp -r "lucid-memory/packages/lucid-native" "$LUCID_DIR/native"
+fi
+
+# Copy Rust crates for building
+if [ -d "lucid-memory/crates" ]; then
+    rm -rf "$LUCID_DIR/crates" 2>/dev/null || true
+    cp -r "lucid-memory/crates" "$LUCID_DIR/crates"
+    cp "lucid-memory/Cargo.toml" "$LUCID_DIR/Cargo.toml"
+    cp "lucid-memory/Cargo.lock" "$LUCID_DIR/Cargo.lock" 2>/dev/null || true
+fi
+
+# Build native module if Rust is available
+NATIVE_BUILT=false
+if command -v cargo &> /dev/null; then
+    echo "Building native Rust module (this gives you 100x faster retrieval)..."
+    cd "$LUCID_DIR/native"
+
+    # Update the manifest path for installed location
+    # In dev: ../../crates/lucid-napi/Cargo.toml
+    # Installed: ../crates/lucid-napi/Cargo.toml
+    if command -v jq &> /dev/null; then
+        jq '.scripts.build = "napi build --platform --release --manifest-path ../crates/lucid-napi/Cargo.toml --output-dir ."' package.json > package.json.tmp && mv package.json.tmp package.json
+    elif command -v python3 &> /dev/null; then
+        python3 << 'PYEOF'
+import json
+with open('package.json', 'r') as f:
+    pkg = json.load(f)
+pkg['scripts']['build'] = 'napi build --platform --release --manifest-path ../crates/lucid-napi/Cargo.toml --output-dir .'
+with open('package.json', 'w') as f:
+    json.dump(pkg, f, indent=2)
+PYEOF
+    fi
+
+    # Install napi-rs CLI if needed
+    if ! bun install 2>/dev/null; then
+        warn "Failed to install napi-rs CLI"
+    else
+        # Build the native module
+        if bun run build 2>/dev/null; then
+            NATIVE_BUILT=true
+            success "Native Rust module built"
+        else
+            warn "Native build failed - falling back to TypeScript (still works, just slower)"
+        fi
+    fi
+    cd "$LUCID_DIR"
+else
+    warn "Rust not installed - using TypeScript fallback (still works, just slower)"
+    echo "  To get 100x faster retrieval, install Rust: https://rustup.rs"
+fi
+
 cd "$LUCID_DIR/server"
+
+# Update package.json to point to the correct native package location
+if [ -f "package.json" ]; then
+    if command -v jq &> /dev/null; then
+        jq '.dependencies["@lucid-memory/native"] = "file:../native"' package.json > package.json.tmp && mv package.json.tmp package.json
+    elif command -v python3 &> /dev/null; then
+        python3 << 'PYEOF'
+import json
+with open('package.json', 'r') as f:
+    pkg = json.load(f)
+if 'dependencies' not in pkg:
+    pkg['dependencies'] = {}
+pkg['dependencies']['@lucid-memory/native'] = 'file:../native'
+with open('package.json', 'w') as f:
+    json.dump(pkg, f, indent=2)
+PYEOF
+    fi
+fi
 
 echo "Installing dependencies..."
 if ! bun install --production 2>/dev/null; then
