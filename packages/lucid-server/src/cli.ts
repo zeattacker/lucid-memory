@@ -31,9 +31,12 @@ async function main() {
     case "context": {
       const task = args[1] || "";
       const projectPath = args.find(a => a.startsWith("--project="))?.split("=")[1];
+      const budgetArg = args.find(a => a.startsWith("--budget="))?.split("=")[1];
+      // Default: 200 tokens (~800 chars) - conservative to protect user's context
+      const tokenBudget = budgetArg ? parseInt(budgetArg, 10) : 200;
 
       if (!task) {
-        console.error("Usage: lucid context 'what you're working on' [--project=/path]");
+        console.error("Usage: lucid context 'what you're working on' [--project=/path] [--budget=200]");
         process.exit(1);
       }
 
@@ -43,45 +46,25 @@ async function main() {
         projectId = project.id;
       }
 
-      const context = await retrieval.getContext(task, projectId);
+      // getContext now handles:
+      // 1. Similarity threshold (only strong matches)
+      // 2. Token budgeting (respects user's context window)
+      // 3. Gist preference (uses compressed semantic essence)
+      const context = await retrieval.getContext(task, projectId, { tokenBudget });
 
       if (context.memories.length === 0) {
-        // Output nothing - no relevant context
+        // Output nothing - no relevant context (preserves user's tokens)
         process.exit(0);
       }
 
-      // Output context in a format suitable for injection
-      // IMPORTANT: Use gists when available, truncate content, and limit total output
-      // to avoid blowing up context windows (see: github.com/JasonDocton/lucid-memory/issues/X)
-      const MAX_TOTAL_CHARS = 800;
-      const MAX_MEMORY_CHARS = 100;
-
-      let output = "";
-      output += `## Relevant Memories\n`;
-      output += `${context.summary}\n\n`;
-
-      let charCount = output.length;
-
-      for (const candidate of context.memories) {
-        // Prefer gist over content
-        const text = candidate.memory.gist || candidate.memory.content;
-        const truncated = text.length > MAX_MEMORY_CHARS
-          ? text.slice(0, MAX_MEMORY_CHARS) + "..."
-          : text;
-        const line = `- [${candidate.memory.type}] ${truncated}\n`;
-
-        // Stop if we'd exceed the limit
-        if (charCount + line.length > MAX_TOTAL_CHARS) {
-          break;
-        }
-
-        output += line;
-        charCount += line.length;
-      }
-
-      // Wrap in XML tags for Claude to recognize
+      // Output context using gists - compressed semantic essence
       console.log("<lucid-context>");
-      console.log(output.trim());
+      console.log(context.summary);
+      for (const candidate of context.memories) {
+        // getContext already filtered by budget, use gist
+        const text = candidate.memory.gist ?? candidate.memory.content.slice(0, 150);
+        console.log(`- [${candidate.memory.type}] ${text}`);
+      }
       console.log("</lucid-context>");
       break;
     }

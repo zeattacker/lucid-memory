@@ -18,7 +18,7 @@ High-performance reconstructive memory retrieval for AI systems, implementing AC
 
 Most AI memory systems treat memory as storage and retrieval—like a database. You store facts, you query facts, you get facts back.
 
-But human memory doesn't work that way. Human memory is *reconstructive*:
+But human memory doesn't work that way. Human memory is _reconstructive_:
 
 - **Memories evolve over time** — They aren't static records
 - **Context shapes retrieval** — What surfaces depends on your current state
@@ -31,14 +31,14 @@ This library implements the computational mechanisms that make reconstructive me
 
 Retrieval-Augmented Generation (RAG) treats memory like a search engine: embed your query, find similar documents, paste them into context. This works for facts but fails for identity:
 
-| Aspect | RAG | Reconstructive Memory |
-|--------|-----|----------------------|
-| Model | Database lookup | Cognitive simulation |
-| Memory | Static records | Living, evolving traces |
-| Retrieval | Similarity search | Activation competition |
-| Context | Ignored | Shapes what surfaces |
-| Time | Flat | Recent/frequent = stronger |
-| Associations | None | Memories activate each other |
+| Aspect       | RAG               | Reconstructive Memory        |
+| ------------ | ----------------- | ---------------------------- |
+| Model        | Database lookup   | Cognitive simulation         |
+| Memory       | Static records    | Living, evolving traces      |
+| Retrieval    | Similarity search | Activation competition       |
+| Context      | Ignored           | Shapes what surfaces         |
+| Time         | Flat              | Recent/frequent = stronger   |
+| Associations | None              | Memories activate each other |
 
 ## Installation
 
@@ -47,6 +47,7 @@ Retrieval-Augmented Generation (RAG) treats memory like a search engine: embed y
 Install once. Claude Code remembers forever.
 
 **macOS / Linux:**
+
 ```bash
 curl -fsSL lucidmemory.dev/install | bash
 ```
@@ -58,6 +59,7 @@ irm lucidmemory.dev/install.ps1 | iex
 ```
 
 The installer will:
+
 1. Check prerequisites (git, disk space, etc.)
 2. Install Bun runtime if needed
 3. Set up Ollama for local embeddings (or OpenAI API)
@@ -80,18 +82,21 @@ cargo add lucid-core
 ### As a Claude Code User
 
 After installation, just use Claude Code normally. Behind the scenes:
+
 - Every conversation is captured via hooks
 - Important learnings are extracted and stored
 - When Claude needs context, relevant memories surface automatically
 - Compaction no longer means losing knowledge
 
 **Before Lucid:**
+
 ```
 User: "Remember that bug we fixed in the auth module?"
 Claude: "I don't have context from previous conversations..."
 ```
 
 **After Lucid:**
+
 ```
 User: "Remember that bug we fixed in the auth module?"
 Claude: "Yes - the race condition in the session refresh. We fixed it
@@ -238,10 +243,10 @@ This library is designed for speed because memory should feel like remembering�
 
 Benchmarks (M-series Mac, 2000 memories, 1024-dim embeddings):
 
-| Operation | Time |
-|-----------|------|
-| Similarity batch | ~5ms |
-| Full retrieval pipeline | ~15ms |
+| Operation                | Time  |
+| ------------------------ | ----- |
+| Similarity batch         | ~5ms  |
+| Full retrieval pipeline  | ~15ms |
 | With spreading (depth 3) | ~20ms |
 
 ## Theory
@@ -265,10 +270,10 @@ The cubing is crucial—it ensures that only strongly matching traces contribute
 
 ## References
 
-- Anderson, J. R. (1983). *The Architecture of Cognition*
-- Anderson, J. R., & Lebiere, C. (1998). *The Atomic Components of Thought*
-- Hintzman, D. L. (1988). Judgments of frequency and recognition memory in a multiple-trace memory model. *Psychological Review*, 95(4), 528-551.
-- Kahana, M. J. (2012). *Foundations of Human Memory*
+- Anderson, J. R. (1983). _The Architecture of Cognition_
+- Anderson, J. R., & Lebiere, C. (1998). _The Atomic Components of Thought_
+- Hintzman, D. L. (1988). Judgments of frequency and recognition memory in a multiple-trace memory model. _Psychological Review_, 95(4), 528-551.
+- Kahana, M. J. (2012). _Foundations of Human Memory_
 
 ## License
 
@@ -276,4 +281,4 @@ GPL-3.0 License - see [LICENSE](LICENSE) for details.
 
 ---
 
-*Built for AI systems that need memory with meaning, not just storage with retrieval.*
+_Built for AI systems that need memory with meaning, not just storage with retrieval._
