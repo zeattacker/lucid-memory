@@ -17,9 +17,10 @@
 
 set -e
 
-# Reconnect stdin to terminal for interactive prompts (needed when piped via curl | bash)
-if [ -e /dev/tty ] && [ -r /dev/tty ]; then
-    exec < /dev/tty
+# Detect if we're running interactively
+INTERACTIVE=false
+if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
+    INTERACTIVE=true
 fi
 
 # Colors - Gradient palette (purple → blue → cyan)
@@ -196,7 +197,9 @@ EOF
         echo "Please manually add this to $config_file in the mcpServers section:"
         echo -e "${BOLD}  \"lucid-memory\": { \"command\": \"$server_path\", \"args\": [] }${NC}"
         echo ""
-        read -p "Press Enter after you've added it (or Ctrl+C to abort)..."
+        if [ "$INTERACTIVE" = true ]; then
+            read -p "Press Enter after you've added it (or Ctrl+C to abort)..." < /dev/tty 2>/dev/null || true
+        fi
     else
         # No mcpServers key, we can write fresh
         cat > "$config_file" << EOF
@@ -460,9 +463,9 @@ echo "  [1] Local (Ollama) - Free, private, runs on your machine (recommended)"
 echo "  [2] OpenAI API - Faster, requires API key (\$0.0001/query)"
 echo ""
 
-# Check if we can read from stdin (interactive mode)
-if [ -t 0 ]; then
-    read -p "Choice [1]: " EMBED_CHOICE
+# Check if we can read interactively
+if [ "$INTERACTIVE" = true ]; then
+    read -p "Choice [1]: " EMBED_CHOICE < /dev/tty 2>/dev/null || EMBED_CHOICE=""
     EMBED_CHOICE=${EMBED_CHOICE:-1}
 else
     echo "Non-interactive mode detected, defaulting to Ollama..."
@@ -472,7 +475,9 @@ fi
 case $EMBED_CHOICE in
     2)
         echo ""
-        read -p "Enter OpenAI API key: " OPENAI_KEY
+        if [ "$INTERACTIVE" = true ]; then
+            read -p "Enter OpenAI API key: " OPENAI_KEY < /dev/tty 2>/dev/null || OPENAI_KEY=""
+        fi
         if [ -z "$OPENAI_KEY" ]; then
             fail "OpenAI API key is required" \
                 "Please run the installer again and provide a valid API key,\nor choose option 1 for local embeddings."
@@ -495,8 +500,8 @@ case $EMBED_CHOICE in
                     echo ""
                     echo "Homebrew is required to install Ollama on macOS."
 
-                    if [ -t 0 ]; then
-                        read -p "Install Homebrew now? [Y/n]: " INSTALL_BREW
+                    if [ "$INTERACTIVE" = true ]; then
+                        read -p "Install Homebrew now? [Y/n]: " INSTALL_BREW < /dev/tty 2>/dev/null || INSTALL_BREW="Y"
                         INSTALL_BREW=${INSTALL_BREW:-Y}
                     else
                         echo "Non-interactive mode, auto-installing Homebrew..."
