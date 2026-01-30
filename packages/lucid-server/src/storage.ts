@@ -194,7 +194,7 @@ export class LucidStorage {
    */
   updateMemory(id: string, updates: Partial<MemoryInput>): Memory | null {
     const sets: string[] = [];
-    const values: unknown[] = [];
+    const values: (string | number | null)[] = [];
 
     if (updates.content !== undefined) {
       sets.push("content = ?");
@@ -273,7 +273,7 @@ export class LucidStorage {
     minAccessCount?: number;
   } = {}): Memory[] {
     const conditions: string[] = [];
-    const values: unknown[] = [];
+    const values: (string | number | null)[] = [];
 
     if (options.projectId) {
       conditions.push("project_id = ?");

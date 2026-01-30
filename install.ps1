@@ -141,11 +141,14 @@ try {
 bun run "%USERPROFILE%\.lucid\server\src\cli.ts" %*
 "@ | Out-File -FilePath "$LucidBin\lucid.cmd" -Encoding ASCII
 
-# Create server launcher
+# Create server launcher with auto-restart wrapper
 @"
 @echo off
-bun run "%USERPROFILE%\.lucid\server\src\server.ts" %*
+powershell -ExecutionPolicy Bypass -File "%USERPROFILE%\.lucid\server\bin\lucid-server-wrapper.ps1" %*
 "@ | Out-File -FilePath "$LucidBin\lucid-server.cmd" -Encoding ASCII
+
+# Create logs directory
+New-Item -ItemType Directory -Force -Path "$LucidDir\logs" | Out-Null
 
 Write-Success "Lucid Memory installed"
 
@@ -153,7 +156,7 @@ Write-Success "Lucid Memory installed"
 
 Write-Host ""
 Write-Host "Embedding provider setup:" -ForegroundColor White
-Write-Host "  [1] Local (Ollama) - Free, private, runs on your machine"
+Write-Host "  [1] Local (Ollama) - Free, private, runs on your machine (recommended)"
 Write-Host "  [2] OpenAI API - Faster, requires API key (`$0.0001/query)"
 Write-Host ""
 $EmbedChoice = Read-Host "Choice [1]"
@@ -215,6 +218,25 @@ switch ($EmbedChoice) {
             Write-Fail "Could not start Ollama service" "Please start Ollama manually and run this installer again."
         }
         Write-Success "Ollama service running"
+
+        # Create scheduled task for Ollama auto-start (Windows keepalive equivalent)
+        try {
+            $TaskName = "LucidOllamaKeepAlive"
+            $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+
+            if (-not $ExistingTask) {
+                $OllamaPath = (Get-Command ollama -ErrorAction SilentlyContinue).Source
+                if ($OllamaPath) {
+                    $Action = New-ScheduledTaskAction -Execute $OllamaPath -Argument "serve"
+                    $Trigger = New-ScheduledTaskTrigger -AtLogOn
+                    $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+                    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Settings $Settings -Description "Keeps Ollama running for Lucid Memory" | Out-Null
+                    Write-Success "Ollama auto-start configured"
+                }
+            }
+        } catch {
+            Write-Warn "Could not configure Ollama auto-start. You may need to start Ollama manually after reboots."
+        }
 
         # Pull the embedding model
         Write-Host "Downloading embedding model (this may take a few minutes)..."

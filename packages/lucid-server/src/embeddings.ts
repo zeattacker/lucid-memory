@@ -5,6 +5,39 @@
  * Supports Ollama (local, free) and OpenAI (cloud, paid).
  */
 
+import { appendFileSync, mkdirSync, existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+
+// Simple file logger for embedding failures
+const LOG_DIR = join(homedir(), ".lucid", "logs");
+const LOG_FILE = join(LOG_DIR, "embeddings.log");
+
+function logError(message: string, error?: Error): void {
+  try {
+    if (!existsSync(LOG_DIR)) {
+      mkdirSync(LOG_DIR, { recursive: true });
+    }
+    const timestamp = new Date().toISOString();
+    const errorDetail = error ? `: ${error.message}` : "";
+    appendFileSync(LOG_FILE, `[${timestamp}] ERROR: ${message}${errorDetail}\n`);
+  } catch {
+    // Silently fail if we can't write logs
+  }
+}
+
+function logWarn(message: string): void {
+  try {
+    if (!existsSync(LOG_DIR)) {
+      mkdirSync(LOG_DIR, { recursive: true });
+    }
+    const timestamp = new Date().toISOString();
+    appendFileSync(LOG_FILE, `[${timestamp}] WARN: ${message}\n`);
+  } catch {
+    // Silently fail if we can't write logs
+  }
+}
+
 export type EmbeddingProvider = "ollama" | "openai";
 
 export interface EmbeddingConfig {
@@ -98,14 +131,33 @@ export class EmbeddingClient {
     const host = this.config.ollamaHost ?? DEFAULT_OLLAMA_HOST;
     const model = this.config.model ?? DEFAULT_OLLAMA_MODEL;
 
-    const response = await fetch(`${host}/api/embeddings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt: text })
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${host}/api/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt: text }),
+        signal: AbortSignal.timeout(30000) // 30 second timeout
+      });
+    } catch (error: any) {
+      if (error.cause?.code === "ECONNREFUSED") {
+        logError("Ollama connection refused - is Ollama running?", error);
+        throw new Error(
+          "Ollama is not running. Start it with: ollama serve\n" +
+          "Or check status with: lucid status"
+        );
+      }
+      if (error.name === "TimeoutError") {
+        logError("Ollama request timed out", error);
+        throw new Error("Ollama request timed out. The service may be overloaded.");
+      }
+      logError("Ollama connection error", error);
+      throw error;
+    }
 
     if (!response.ok) {
       const error = await response.text();
+      logError(`Ollama embedding failed with status ${response.status}: ${error}`);
       throw new Error(`Ollama embedding failed: ${error}`);
     }
 
@@ -185,8 +237,11 @@ export async function detectProvider(): Promise<EmbeddingConfig | null> {
         return { provider: "ollama", model: DEFAULT_OLLAMA_MODEL };
       }
     }
-  } catch {
-    // Ollama not available
+  } catch (error: any) {
+    // Ollama not available - log it
+    if (error.cause?.code === "ECONNREFUSED") {
+      logWarn("Ollama not running during provider detection");
+    }
   }
 
   // Check for OpenAI API key in environment

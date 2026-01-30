@@ -363,12 +363,12 @@ exec bun run "$HOME/.lucid/server/src/cli.ts" "$@"
 EOF
 chmod +x "$LUCID_BIN/lucid"
 
-# Create server launcher
-cat > "$LUCID_BIN/lucid-server" << 'EOF'
-#!/bin/bash
-exec bun run "$HOME/.lucid/server/src/server.ts" "$@"
-EOF
+# Copy server wrapper with auto-restart
+cp "$LUCID_DIR/server/bin/lucid-server-wrapper.sh" "$LUCID_BIN/lucid-server"
 chmod +x "$LUCID_BIN/lucid-server"
+
+# Create logs directory
+mkdir -p "$LUCID_DIR/logs"
 
 success "Lucid Memory installed"
 
@@ -376,7 +376,7 @@ success "Lucid Memory installed"
 
 echo ""
 echo -e "${BOLD}Embedding provider setup:${NC}"
-echo "  [1] Local (Ollama) - Free, private, runs on your machine"
+echo "  [1] Local (Ollama) - Free, private, runs on your machine (recommended)"
 echo "  [2] OpenAI API - Faster, requires API key (\$0.0001/query)"
 echo ""
 read -p "Choice [1]: " EMBED_CHOICE

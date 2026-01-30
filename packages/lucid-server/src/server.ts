@@ -50,6 +50,7 @@ setInterval(async () => {
 const server = new McpServer({
   name: "lucid-memory",
   version: "0.1.0",
+  // @ts-expect-error - MCP SDK types don't include capabilities but runtime accepts it
   capabilities: {
     tools: {},
   },
@@ -60,6 +61,7 @@ const server = new McpServer({
 /**
  * memory_store - Save something important to remember
  */
+// @ts-expect-error - Zod schema causes excessive type depth
 server.tool(
   "memory_store",
   "Store something important to remember. Use this proactively when you learn something useful about the project, solve a bug, make a decision, or encounter context that might be valuable later.",
@@ -117,6 +119,7 @@ server.tool(
 /**
  * memory_query - Search for relevant memories
  */
+// @ts-expect-error - Zod schema causes excessive type depth
 server.tool(
   "memory_query",
   "Search for relevant memories. Use when you need to recall past learnings, decisions, bugs, or context.",

@@ -95,16 +95,96 @@ async function main() {
     case "status": {
       const stats = retrieval.storage.getStats();
       const hasEmbeddings = embeddingConfig !== null;
+      let ollamaStatus = "not configured";
+      let ollamaHealthy = false;
+      let embeddingTestResult = "skipped";
 
       console.log("🧠 Lucid Memory Status");
+      console.log("━━━━━━━━━━━━━━━━━━━━━━");
       console.log("");
-      console.log(`Memories: ${stats.memoryCount}`);
-      console.log(`Embeddings: ${hasEmbeddings ? "✓ Active" : "✗ No provider"}`);
+
+      // Check Ollama health if configured
+      if (embeddingConfig?.provider === "ollama") {
+        const ollamaHost = embeddingConfig.ollamaHost || "http://localhost:11434";
+        try {
+          const response = await fetch(`${ollamaHost}/api/tags`, {
+            signal: AbortSignal.timeout(3000)
+          });
+          if (response.ok) {
+            ollamaStatus = "running";
+            ollamaHealthy = true;
+
+            // Test actual embedding generation
+            try {
+              const testResponse = await fetch(`${ollamaHost}/api/embeddings`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ model: embeddingConfig.model || "nomic-embed-text", prompt: "test" }),
+                signal: AbortSignal.timeout(10000)
+              });
+              if (testResponse.ok) {
+                embeddingTestResult = "✓ working";
+              } else {
+                embeddingTestResult = `✗ error: ${testResponse.status}`;
+              }
+            } catch (e: any) {
+              embeddingTestResult = `✗ failed: ${e.message}`;
+            }
+          } else {
+            ollamaStatus = `error (HTTP ${response.status})`;
+          }
+        } catch (e: any) {
+          if (e.name === "TimeoutError") {
+            ollamaStatus = "✗ timeout (not responding)";
+          } else if (e.cause?.code === "ECONNREFUSED") {
+            ollamaStatus = "✗ not running";
+          } else {
+            ollamaStatus = `✗ error: ${e.message}`;
+          }
+        }
+      } else if (embeddingConfig?.provider === "openai") {
+        // For OpenAI, just check if key is set
+        ollamaStatus = "n/a (using OpenAI)";
+        embeddingTestResult = embeddingConfig.openaiApiKey ? "✓ API key configured" : "✗ no API key";
+      }
+
+      // Database status
+      console.log("Database:");
+      console.log(`  Location: ~/.lucid/memory.db`);
+      console.log(`  Size: ${Math.round(stats.dbSizeBytes / 1024)} KB`);
+      console.log(`  Memories: ${stats.memoryCount}`);
+      console.log(`  Associations: ${stats.associationCount}`);
+      console.log("");
+
+      // Embedding status
+      console.log("Embeddings:");
       if (hasEmbeddings && embeddingConfig) {
         console.log(`  Provider: ${embeddingConfig.provider}`);
-        console.log(`  Model: ${embeddingConfig.model}`);
+        console.log(`  Model: ${embeddingConfig.model || "default"}`);
+        if (embeddingConfig.provider === "ollama") {
+          console.log(`  Ollama: ${ollamaStatus}`);
+        }
+        console.log(`  Status: ${embeddingTestResult}`);
+      } else {
+        console.log("  ✗ No embedding provider configured");
       }
-      console.log(`Database: ~/.lucid/memory.db (${Math.round(stats.dbSizeBytes / 1024)} KB)`);
+      console.log("");
+
+      // Overall health
+      const healthy = hasEmbeddings && (ollamaHealthy || embeddingConfig?.provider === "openai");
+      if (healthy) {
+        console.log("Overall: ✓ Healthy");
+      } else {
+        console.log("Overall: ✗ Issues detected");
+        console.log("");
+        console.log("Troubleshooting:");
+        if (!hasEmbeddings) {
+          console.log("  - No embedding provider found. Re-run the installer.");
+        } else if (embeddingConfig?.provider === "ollama" && !ollamaHealthy) {
+          console.log("  - Ollama is not running. Start it with: ollama serve");
+          console.log("  - Or check if the model is installed: ollama pull nomic-embed-text");
+        }
+      }
       break;
     }
 
