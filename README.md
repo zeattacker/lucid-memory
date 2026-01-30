@@ -5,11 +5,13 @@
 Memory for AI that actually works like memory—local, fast, and cognitive.
 
 <p align="center">
-  <br>
-  <code>curl -fsSL lucidmemory.dev/install | bash</code>
-  <br><br>
-  <sub>Works with Claude Code · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
-  <br><br>
+
+```bash
+curl -fsSL lucidmemory.dev/install | bash
+```
+
+<sub>Works with Claude Code · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
+
 </p>
 
 ---
