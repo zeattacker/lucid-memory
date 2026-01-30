@@ -1,8 +1,8 @@
 # Lucid Memory
 
-**Memory that remembers like you do.**
+**2.7ms retrieval. 743,000 memories/second. $0/query.**
 
-High-performance reconstructive memory retrieval for AI systems, implementing ACT-R spreading activation and MINERVA 2's cognitive architecture.
+Memory for AI that actually works like memory—local, fast, and cognitive.
 
 <p align="center">
   <br>
@@ -14,40 +14,62 @@ High-performance reconstructive memory retrieval for AI systems, implementing AC
 
 ---
 
-## Why Reconstructive Memory?
+## 100x Faster Than Cloud RAG
 
-Most AI memory systems treat memory as storage and retrieval—like a database. You store facts, you query facts, you get facts back.
+| System | Latency | Cost |
+| ------ | ------- | ---- |
+| **Lucid Memory** | **2.7ms** | **$0/query** |
+| Pinecone | 10-50ms | $70+/month |
+| Weaviate | 15-40ms | Self-host costs |
+| OpenAI + Pinecone | 200-500ms | ~$0.13/1M tokens + Pinecone |
+| LangChain RAG | 300-800ms | API costs compound |
 
-But human memory doesn't work that way. Human memory is _reconstructive_:
+<details>
+<summary><b>Full benchmark data</b></summary>
 
-- **Memories evolve over time** — They aren't static records
-- **Context shapes retrieval** — What surfaces depends on your current state
-- **Associations matter** — Activating one memory activates related memories
-- **Details fade, essence persists** — Verbatim decays faster than gist
+Measured on M-series Mac with 1024-dimensional embeddings:
 
-This library implements the computational mechanisms that make reconstructive memory possible.
+| Memories | Retrieval Time | Throughput |
+| -------- | -------------- | ---------- |
+| 100      | 0.13ms         | 769k mem/s |
+| 1,000    | 1.35ms         | 741k mem/s |
+| 2,000    | 2.69ms         | 743k mem/s |
+| 10,000   | ~13ms          | ~740k mem/s |
 
-### The Problem with RAG
+Spreading activation (depth 3) adds <0.1ms overhead.
 
-Retrieval-Augmented Generation (RAG) treats memory like a search engine: embed your query, find similar documents, paste them into context. This works for facts but fails for identity:
+</details>
 
-| Aspect       | RAG               | Reconstructive Memory        |
-| ------------ | ----------------- | ---------------------------- |
-| Model        | Database lookup   | Cognitive simulation         |
-| Memory       | Static records    | Living, evolving traces      |
-| Retrieval    | Similarity search | Activation competition       |
-| Context      | Ignored           | Shapes what surfaces         |
-| Time         | Flat              | Recent/frequent = stronger   |
-| Associations | None              | Memories activate each other |
+### Why so fast?
 
-## Installation
+1. **No network round-trips** — Everything runs locally
+2. **No embedding at query time** — Embeddings are pre-computed
+3. **Cognitive ranking > reranking** — One pass, not retrieve-then-rerank
+4. **Rust core** — Zero interpreter overhead
 
-### Quick Start (for Claude Code users)
+---
 
-Install once. Claude Code remembers forever.
+## Before & After
+
+**Without Lucid:**
+```
+User: "Remember that bug we fixed in the auth module?"
+Claude: "I don't have context from previous conversations..."
+```
+
+**With Lucid:**
+```
+User: "Remember that bug we fixed in the auth module?"
+Claude: "Yes - the race condition in the session refresh. We fixed it
+by adding a mutex around the token update. That was three weeks ago
+when we were refactoring the middleware."
+```
+
+---
+
+## Install in 60 Seconds
 
 **macOS / Linux:**
-
 ```bash
 curl -fsSL lucidmemory.dev/install | bash
 ```
@@ -58,53 +80,115 @@ curl -fsSL lucidmemory.dev/install | bash
 irm lucidmemory.dev/install.ps1 | iex
 ```
 
-The installer will:
+That's it. Claude Code now remembers across sessions.
 
-1. Check prerequisites (git, disk space, etc.)
-2. Install Bun runtime if needed
-3. Set up Ollama for local embeddings (or OpenAI API)
-4. Configure Claude Code MCP settings
-5. Install hooks for automatic memory capture
-6. Restart Claude Code to activate
+<details>
+<summary>What the installer does</summary>
+
+1. Checks prerequisites (git, disk space)
+2. Installs Bun runtime if needed
+3. Sets up Ollama for local embeddings (or OpenAI API)
+4. Configures Claude Code MCP settings
+5. Installs hooks for automatic memory capture
+6. Restarts Claude Code to activate
 
 **Requirements:** 5GB free disk space, Claude Code installed
 
-### Manual Installation (for developers)
+</details>
 
-If you want to embed the retrieval engine in your own project:
+---
 
-```bash
-cargo add lucid-core
+## How It Works
+
+Most AI memory is just vector search—embed query, find similar docs, paste into context.
+
+Lucid implements how humans actually remember:
+
+| Aspect | Traditional RAG | Lucid Memory |
+| ------ | --------------- | ------------ |
+| Model | Database lookup | Cognitive simulation |
+| Memory | Static records | Living, evolving traces |
+| Retrieval | Similarity search | Activation competition |
+| Context | Ignored | Shapes what surfaces |
+| Time | Flat | Recent/frequent = stronger |
+| Associations | None | Memories activate each other |
+
+### The Science
+
+Built on two foundational cognitive models:
+
+**ACT-R** (Anderson, 1983) — Memories compete for retrieval based on activation:
+- Base-level activation from recency and frequency
+- Spreading activation through associations
+- Retrieval probability from activation strength
+
+**MINERVA 2** (Hintzman, 1988) — Reconstructive retrieval:
+- Probe-trace similarity with nonlinear activation (cubing)
+- Strong matches dominate, weak matches contribute minimally
+- Pattern completion from partial cues
+
+<details>
+<summary><b>Technical details</b></summary>
+
+### Three Sources of Activation
+
+Every memory's retrieval probability comes from:
+
+**1. Base-Level (Recency & Frequency)**
+```
+B(m) = ln[Σ(t_k)^(-d)]
+```
+Recent and frequent access = higher activation.
+
+**2. Probe-Trace Similarity**
+```
+A(i) = S(i)³
+```
+MINERVA 2's cubic function emphasizes strong matches.
+
+**3. Spreading Activation**
+```
+A_j = Σ(W_i / n_i) × S_ij
+```
+Activation flows through the association graph.
+
+### The Pipeline
+
+1. Compute similarities between probe and all traces
+2. Apply nonlinear activation (cubing)
+3. Compute base-level from access history
+4. Spread activation through associations
+5. Combine, rank, and filter by probability
+
+</details>
+
+---
+
+## For Developers
+
+Want to embed the retrieval engine in your own project?
+
+```rust
+use lucid_core::{
+    retrieval::{retrieve, RetrievalConfig, RetrievalInput},
+    spreading::Association,
+};
+
+let input = RetrievalInput {
+    probe_embedding: &probe,
+    memory_embeddings: &memories,
+    access_histories_ms: &histories,
+    emotional_weights: &weights,
+    decay_rates: &decays,
+    associations: &[],
+    current_time_ms: now,
+};
+
+let results = retrieve(&input, &RetrievalConfig::default());
 ```
 
-## Usage
-
-### As a Claude Code User
-
-After installation, just use Claude Code normally. Behind the scenes:
-
-- Every conversation is captured via hooks
-- Important learnings are extracted and stored
-- When Claude needs context, relevant memories surface automatically
-- Compaction no longer means losing knowledge
-
-**Before Lucid:**
-
-```
-User: "Remember that bug we fixed in the auth module?"
-Claude: "I don't have context from previous conversations..."
-```
-
-**After Lucid:**
-
-```
-User: "Remember that bug we fixed in the auth module?"
-Claude: "Yes - the race condition in the session refresh. We fixed it
-by adding a mutex around the token update. That was three weeks ago
-when we were refactoring the middleware."
-```
-
-### As a Developer (using lucid-core)
+<details>
+<summary><b>Full API example</b></summary>
 
 ```rust
 use lucid_core::{
@@ -128,7 +212,7 @@ let input = RetrievalInput {
     access_histories_ms: &[vec![1000.0], vec![500.0], vec![100.0]],
     emotional_weights: &[0.5, 0.5, 0.5],
     decay_rates: &[0.5, 0.5, 0.5],
-    associations: &[],  // Links between memories
+    associations: &[],
     current_time_ms: 2000.0,
 };
 
@@ -145,161 +229,63 @@ for candidate in results {
 }
 ```
 
-## Core Concepts
+</details>
 
-### Three Sources of Activation
-
-Every memory has an activation level that determines how likely it is to be retrieved. Activation comes from three sources:
-
-#### 1. Base-Level Activation (Recency & Frequency)
-
-```
-B(m) = ln[Σ(t_k)^(-d)]
-```
-
-Each time you access a memory, it gets stronger. Recent accesses count more than old ones. This is why you remember what you had for breakfast today but not last Tuesday.
-
-#### 2. Probe-Trace Similarity (Relevance)
-
-```
-A(i) = S(i)³
-```
-
-How well does the current context match the memory? MINERVA 2's nonlinear function (cubing) ensures weakly matching memories contribute minimally while strong matches dominate. This enables pattern completion from partial cues.
-
-#### 3. Spreading Activation (Associations)
-
-```
-A_j = Σ(W_i / n_i) × S_ij
-```
-
-Memories don't exist in isolation. When you think of "coffee," related memories (morning routine, that café in Paris, the conversation you had there) get activated too. Activation spreads through the association graph, decaying with distance.
-
-### The Retrieval Pipeline
-
-1. **Compute similarities** between probe and all memory traces
-2. **Apply nonlinear activation** (MINERVA 2's cubic function)
-3. **Compute base-level** from access history
-4. **Spread activation** through association graph
-5. **Combine, rank, and filter** by retrieval probability
-
-## Configuration
+<details>
+<summary><b>Configuration options</b></summary>
 
 ```rust
 let config = RetrievalConfig {
-    // Base-level decay rate (0.5 = human-like)
-    decay_rate: 0.5,
-
-    // Activation threshold for retrieval
-    activation_threshold: 0.3,
-
-    // Noise parameter (higher = more random)
-    noise_parameter: 0.1,
-
-    // How deep to spread through associations
-    spreading_depth: 3,
-
-    // Decay per hop in spreading
-    spreading_decay: 0.7,
-
-    // Minimum probability to include in results
-    min_probability: 0.1,
-
-    // Maximum results to return
-    max_results: 10,
-
-    // Spread in both directions
-    bidirectional: true,
+    decay_rate: 0.5,           // Base-level decay (0.5 = human-like)
+    activation_threshold: 0.3,  // Retrieval threshold
+    noise_parameter: 0.1,       // Randomness (higher = more random)
+    spreading_depth: 3,         // Association traversal depth
+    spreading_decay: 0.7,       // Decay per hop
+    min_probability: 0.1,       // Filter threshold
+    max_results: 10,            // Result limit
+    bidirectional: true,        // Spread both directions
 };
 ```
 
-## Associations
+</details>
 
-Link memories together to enable spreading activation:
+<details>
+<summary><b>Associations</b></summary>
+
+Link memories to enable spreading activation:
 
 ```rust
 use lucid_core::spreading::Association;
 
 let associations = vec![
     Association {
-        source: 0,  // Memory index
-        target: 1,  // Memory index
-        forward_strength: 0.8,  // Source → Target
+        source: 0,
+        target: 1,
+        forward_strength: 0.8,   // Source → Target
         backward_strength: 0.3,  // Target → Source
     },
 ];
 ```
 
-When memory 0 activates, memory 1 receives activation proportional to the connection strength.
+When memory 0 activates, memory 1 receives proportional activation.
 
-## Performance
-
-This library is designed for speed because memory should feel like remembering—not like a database query.
-
-- **Pure Rust** — No runtime overhead
-- **Zero-copy where possible** — Borrows instead of clones
-- **Batch operations** — Vectorized similarity computation
-- **Pre-computed norms** — Cached for repeated queries
-
-### Benchmarks
-
-Measured on M-series Mac with 1024-dimensional embeddings:
-
-| Memories | Retrieval Time | Throughput |
-| -------- | -------------- | ---------- |
-| 100      | 0.13ms         | 769k mem/s |
-| 1,000    | 1.35ms         | 741k mem/s |
-| 2,000    | 2.69ms         | 743k mem/s |
-| 10,000   | ~13ms          | ~740k mem/s |
-
-Spreading activation (depth 3) adds <0.1ms overhead.
-
-### vs. Traditional RAG
-
-| System | Typical Latency | Notes |
-| ------ | --------------- | ----- |
-| **Lucid Memory** | **2.7ms** | Local, cognitive ranking |
-| Pinecone | 10-50ms | Network + database overhead |
-| Weaviate | 15-40ms | Self-hosted vector DB |
-| OpenAI + Pinecone | 200-500ms | Embedding API + retrieval |
-| LangChain RAG | 300-800ms | Full pipeline with reranking |
-
-Lucid is **10-100x faster** than cloud RAG because:
-1. **No network round-trips** — Everything runs locally
-2. **No embedding at query time** — Embeddings are pre-computed
-3. **Cognitive ranking > reranking** — One pass, not retrieve-then-rerank
-4. **Rust, not Python** — Zero interpreter overhead
-
-## Theory
-
-### ACT-R (Adaptive Control of Thought—Rational)
-
-ACT-R models human cognition as activation-based retrieval. Memories compete for retrieval based on their activation levels. The mathematical formulation predicts both what will be retrieved and how long it will take.
-
-Key insight: Memory is not about storage capacity but retrieval competition.
-
-### MINERVA 2
-
-Hintzman's MINERVA 2 model treats memory as a collection of traces. Retrieval involves:
-
-1. Present a probe
-2. Compute similarity to all traces
-3. Apply nonlinear activation (cubing)
-4. The "echo" emerges from the weighted sum
-
-The cubing is crucial—it ensures that only strongly matching traces contribute to the echo. This enables pattern completion and explains why partial cues can retrieve complete memories.
-
-## References
-
-- Anderson, J. R. (1983). _The Architecture of Cognition_
-- Anderson, J. R., & Lebiere, C. (1998). _The Atomic Components of Thought_
-- Hintzman, D. L. (1988). Judgments of frequency and recognition memory in a multiple-trace memory model. _Psychological Review_, 95(4), 528-551.
-- Kahana, M. J. (2012). _Foundations of Human Memory_
-
-## License
-
-GPL-3.0 License - see [LICENSE](LICENSE) for details.
+</details>
 
 ---
 
-_Built for AI systems that need memory with meaning, not just storage with retrieval._
+## References
+
+- Anderson, J. R. (1983). *The Architecture of Cognition*
+- Anderson, J. R., & Lebiere, C. (1998). *The Atomic Components of Thought*
+- Hintzman, D. L. (1988). Judgments of frequency and recognition memory in a multiple-trace memory model. *Psychological Review*, 95(4), 528-551.
+- Kahana, M. J. (2012). *Foundations of Human Memory*
+
+## License
+
+GPL-3.0 — see [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <sub>Built for AI systems that need memory with meaning, not just storage with retrieval.</sub>
+</p>
