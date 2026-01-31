@@ -2,6 +2,7 @@
 name = "lucid-core"
 description = "Reconstructive memory retrieval engine using ACT-R spreading activation"
 readme = "../../README.md"
+changelog = "../../CHANGELOG.md"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
