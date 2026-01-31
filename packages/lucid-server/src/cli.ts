@@ -14,6 +14,7 @@
 
 import { detectProvider } from "./embeddings.ts"
 import { LucidRetrieval } from "./retrieval.ts"
+import type { MemoryType } from "./storage.ts"
 
 const args = process.argv.slice(2)
 const command = args[0]
@@ -88,7 +89,7 @@ async function main() {
 			}
 
 			const typeArg = args.find((a) => a.startsWith("--type="))?.split("=")[1]
-			const type = (typeArg as any) || "learning"
+			const type = (typeArg as MemoryType) || "learning"
 			const projectPath = args
 				.find((a) => a.startsWith("--project="))
 				?.split("=")[1]
@@ -153,19 +154,26 @@ async function main() {
 							} else {
 								embeddingTestResult = `✗ error: ${testResponse.status}`
 							}
-						} catch (e: any) {
-							embeddingTestResult = `✗ failed: ${e.message}`
+						} catch (e: unknown) {
+							const message = e instanceof Error ? e.message : String(e)
+							embeddingTestResult = `✗ failed: ${message}`
 						}
 					} else {
 						ollamaStatus = `error (HTTP ${response.status})`
 					}
-				} catch (e: any) {
-					if (e.name === "TimeoutError") {
-						ollamaStatus = "✗ timeout (not responding)"
-					} else if (e.cause?.code === "ECONNREFUSED") {
-						ollamaStatus = "✗ not running"
+				} catch (e: unknown) {
+					if (e instanceof Error) {
+						if (e.name === "TimeoutError") {
+							ollamaStatus = "✗ timeout (not responding)"
+						} else if (
+							(e.cause as { code?: string })?.code === "ECONNREFUSED"
+						) {
+							ollamaStatus = "✗ not running"
+						} else {
+							ollamaStatus = `✗ error: ${e.message}`
+						}
 					} else {
-						ollamaStatus = `✗ error: ${e.message}`
+						ollamaStatus = `✗ error: ${String(e)}`
 					}
 				}
 			} else if (embeddingConfig?.provider === "openai") {
@@ -219,10 +227,6 @@ async function main() {
 			}
 			break
 		}
-
-		case "help":
-		case "--help":
-		case "-h":
 		default: {
 			console.log(`
 Lucid Memory CLI

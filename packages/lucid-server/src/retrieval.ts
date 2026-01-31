@@ -320,7 +320,7 @@ export class LucidRetrieval {
 		const candidates: RetrievalCandidate[] = nativeResults.map((result) => {
 			const memory = memoriesWithEmbeddings[result.index]
 			const embedding = memoryEmbeddings[result.index]
-			const similarity = nativeModule!.cosineSimilarity(probeVector, embedding)
+			const similarity = nativeModule?.cosineSimilarity(probeVector, embedding)
 
 			return {
 				memory,

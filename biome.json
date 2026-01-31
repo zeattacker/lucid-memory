@@ -125,6 +125,16 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": ["**/server.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"useAwait": "off"
+					}
+				}
+			}
 		}
 	]
 }

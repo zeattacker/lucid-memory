@@ -222,7 +222,7 @@ function extractKeyPhrase(text: string, maxLength: number): string {
 	for (const word of words) {
 		const next = result ? `${result} ${word}` : word
 		if (next.length > maxLength - 3) {
-			return result + "..."
+			return `${result}...`
 		}
 		result = next
 	}

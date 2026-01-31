@@ -70,12 +70,11 @@ export class EmbeddingClient {
 	/**
 	 * Generate embedding for a single text.
 	 */
-	async embed(text: string): Promise<EmbeddingResult> {
+	embed(text: string): Promise<EmbeddingResult> {
 		if (this.config.provider === "ollama") {
 			return this.embedOllama(text)
-		} else {
-			return this.embedOpenAI(text)
 		}
+		return this.embedOpenAI(text)
 	}
 
 	/**
@@ -139,22 +138,23 @@ export class EmbeddingClient {
 				body: JSON.stringify({ model, prompt: text }),
 				signal: AbortSignal.timeout(30000), // 30 second timeout
 			})
-		} catch (error: any) {
-			if (error.cause?.code === "ECONNREFUSED") {
-				logError("Ollama connection refused - is Ollama running?", error)
+		} catch (error: unknown) {
+			const err = error instanceof Error ? error : new Error(String(error))
+			if ((err.cause as { code?: string })?.code === "ECONNREFUSED") {
+				logError("Ollama connection refused - is Ollama running?", err)
 				throw new Error(
 					"Ollama is not running. Start it with: ollama serve\n" +
 						"Or check status with: lucid status"
 				)
 			}
-			if (error.name === "TimeoutError") {
-				logError("Ollama request timed out", error)
+			if (err.name === "TimeoutError") {
+				logError("Ollama request timed out", err)
 				throw new Error(
 					"Ollama request timed out. The service may be overloaded."
 				)
 			}
-			logError("Ollama connection error", error)
-			throw error
+			logError("Ollama connection error", err)
+			throw err
 		}
 
 		if (!response.ok) {
@@ -243,14 +243,18 @@ export async function detectProvider(): Promise<EmbeddingConfig | null> {
 				return { provider: "ollama", model: DEFAULT_OLLAMA_MODEL }
 			}
 		}
-	} catch (error: any) {
+	} catch (error: unknown) {
 		// Ollama not available - log it
-		if (error.cause?.code === "ECONNREFUSED") {
+		if (
+			error instanceof Error &&
+			(error.cause as { code?: string })?.code === "ECONNREFUSED"
+		) {
 			logWarn("Ollama not running during provider detection")
 		}
 	}
 
 	// Check for OpenAI API key in environment
+	// biome-ignore lint/style/noProcessEnv: Config detection requires environment access
 	const openaiKey = process.env.OPENAI_API_KEY
 	if (openaiKey) {
 		return { provider: "openai", openaiApiKey: openaiKey }

@@ -124,7 +124,7 @@ describe("LucidStorage", () => {
 
 			// Check values are close (floating point)
 			for (let i = 0; i < vector.length; i++) {
-				expect(Math.abs(retrieved![i] - vector[i])).toBeLessThan(0.0001)
+				expect(Math.abs(retrieved?.[i] - vector[i])).toBeLessThan(0.0001)
 			}
 		})
 
@@ -373,7 +373,7 @@ describe("LucidStorage", () => {
 			})
 
 			const contexts = storage.getAccessContexts(
-				storage.getLocationByPath("/src/buggy.ts")!.id
+				storage.getLocationByPath("/src/buggy.ts")?.id
 			)
 
 			expect(contexts[0].activityType).toBe("debugging")
@@ -389,7 +389,7 @@ describe("LucidStorage", () => {
 			})
 
 			const contexts = storage.getAccessContexts(
-				storage.getLocationByPath("/src/code.ts")!.id
+				storage.getLocationByPath("/src/code.ts")?.id
 			)
 
 			expect(contexts[0].activityType).toBe("refactoring")
@@ -557,7 +557,7 @@ describe("LucidStorage", () => {
 
 			expect(routesAssoc).toBeDefined()
 			// After 5 co-accesses, strength should be higher than initial 0.091
-			expect(routesAssoc!.associationStrength).toBeGreaterThan(0.3)
+			expect(routesAssoc?.associationStrength).toBeGreaterThan(0.3)
 		})
 
 		it("gets locations by activity type", () => {
@@ -640,8 +640,8 @@ describe("LucidStorage", () => {
 			// Task-based association should be stronger than time-based
 			// With 5x multiplier: f(5) = 1 - 1/(1 + 0.5) ≈ 0.33
 			// With 1x multiplier: f(1) = 1 - 1/(1 + 0.1) ≈ 0.09
-			expect(sessionAssoc!.associationStrength).toBeGreaterThan(
-				formatAssoc!.associationStrength
+			expect(sessionAssoc?.associationStrength).toBeGreaterThan(
+				formatAssoc?.associationStrength
 			)
 		})
 
@@ -686,8 +686,8 @@ describe("LucidStorage", () => {
 			expect(typesAssoc).toBeDefined()
 
 			// Same activity (debugging+debugging) should be stronger than different (debugging+reading)
-			expect(middlewareAssoc!.associationStrength).toBeGreaterThan(
-				typesAssoc!.associationStrength
+			expect(middlewareAssoc?.associationStrength).toBeGreaterThan(
+				typesAssoc?.associationStrength
 			)
 		})
 	})
