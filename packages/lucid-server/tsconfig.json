@@ -12,6 +12,8 @@
 		"declaration": true,
 		"declarationMap": true,
 		"sourceMap": true,
+		"noEmit": true,
+		"allowImportingTsExtensions": true,
 		"types": ["bun-types", "@types/better-sqlite3"]
 	},
 	"include": ["src/**/*"],

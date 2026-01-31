@@ -123,8 +123,9 @@ describe("LucidStorage", () => {
 			expect(retrieved?.length).toBe(5)
 
 			// Check values are close (floating point)
+			// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
 			for (let i = 0; i < vector.length; i++) {
-				expect(Math.abs(retrieved?.[i] - vector[i])).toBeLessThan(0.0001)
+				expect(Math.abs(retrieved![i] - vector[i])).toBeLessThan(0.0001)
 			}
 		})
 
@@ -372,8 +373,9 @@ describe("LucidStorage", () => {
 				wasDirectAccess: true,
 			})
 
+			// biome-ignore lint/style/noNonNullAssertion: just recorded above
 			const contexts = storage.getAccessContexts(
-				storage.getLocationByPath("/src/buggy.ts")?.id
+				storage.getLocationByPath("/src/buggy.ts")!.id
 			)
 
 			expect(contexts[0].activityType).toBe("debugging")
@@ -388,8 +390,9 @@ describe("LucidStorage", () => {
 				activityType: "refactoring",
 			})
 
+			// biome-ignore lint/style/noNonNullAssertion: just recorded above
 			const contexts = storage.getAccessContexts(
-				storage.getLocationByPath("/src/code.ts")?.id
+				storage.getLocationByPath("/src/code.ts")!.id
 			)
 
 			expect(contexts[0].activityType).toBe("refactoring")
@@ -640,8 +643,10 @@ describe("LucidStorage", () => {
 			// Task-based association should be stronger than time-based
 			// With 5x multiplier: f(5) = 1 - 1/(1 + 0.5) ≈ 0.33
 			// With 1x multiplier: f(1) = 1 - 1/(1 + 0.1) ≈ 0.09
-			expect(sessionAssoc?.associationStrength).toBeGreaterThan(
-				formatAssoc?.associationStrength
+			// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
+			expect(sessionAssoc!.associationStrength).toBeGreaterThan(
+				// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
+				formatAssoc!.associationStrength
 			)
 		})
 
@@ -686,8 +691,10 @@ describe("LucidStorage", () => {
 			expect(typesAssoc).toBeDefined()
 
 			// Same activity (debugging+debugging) should be stronger than different (debugging+reading)
-			expect(middlewareAssoc?.associationStrength).toBeGreaterThan(
-				typesAssoc?.associationStrength
+			// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
+			expect(middlewareAssoc!.associationStrength).toBeGreaterThan(
+				// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
+				typesAssoc!.associationStrength
 			)
 		})
 	})
