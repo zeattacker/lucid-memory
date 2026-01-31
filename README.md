@@ -2,7 +2,7 @@
 
 **2.7ms retrieval. 743,000 memories/second. $0/query.**
 
-Memory for AI that actually works like memory—local, fast, and cognitive.
+Memory for AI that actually works like memory—local, fast, and cognitive. Give Claude the power to remember beyond compaction, across any number of projects- and all with less token use or context than most SKILL.md files.
 
 <div align="center">
 
