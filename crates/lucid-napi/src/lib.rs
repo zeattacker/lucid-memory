@@ -368,8 +368,7 @@ pub fn location_get_associated(
 	associations: Vec<JsLocationAssociation>,
 	limit: u32,
 ) -> Vec<JsAssociatedLocation> {
-	let assocs: Vec<LocationAssociation> =
-		associations.into_iter().map(js_assoc_to_core).collect();
+	let assocs: Vec<LocationAssociation> = associations.into_iter().map(js_assoc_to_core).collect();
 	core_get_associated(location_id, &assocs, limit as usize)
 		.into_iter()
 		.map(|(id, strength)| JsAssociatedLocation {
@@ -391,43 +390,40 @@ pub fn location_is_well_known(familiarity: f64, config: Option<JsLocationConfig>
 // ============================================================================
 
 fn js_config_to_core(js: Option<JsLocationConfig>) -> LocationConfig {
-	match js {
-		None => LocationConfig::default(),
-		Some(js) => {
-			let default = LocationConfig::default();
-			LocationConfig {
-				familiarity_k: js.familiarity_k.unwrap_or(default.familiarity_k),
-				stale_threshold_days: js
-					.stale_threshold_days
-					.unwrap_or(default.stale_threshold_days),
-				max_decay_rate: js.max_decay_rate.unwrap_or(default.max_decay_rate),
-				decay_dampening: js.decay_dampening.unwrap_or(default.decay_dampening),
-				base_floor: js.base_floor.unwrap_or(default.base_floor),
-				sticky_bonus: js.sticky_bonus.unwrap_or(default.sticky_bonus),
-				well_known_threshold: js
-					.well_known_threshold
-					.unwrap_or(default.well_known_threshold),
-				task_same_activity_multiplier: js
-					.task_same_activity_multiplier
-					.unwrap_or(default.task_same_activity_multiplier),
-				task_diff_activity_multiplier: js
-					.task_diff_activity_multiplier
-					.unwrap_or(default.task_diff_activity_multiplier),
-				time_same_activity_multiplier: js
-					.time_same_activity_multiplier
-					.unwrap_or(default.time_same_activity_multiplier),
-				time_diff_activity_multiplier: js
-					.time_diff_activity_multiplier
-					.unwrap_or(default.time_diff_activity_multiplier),
-				backward_strength_factor: js
-					.backward_strength_factor
-					.unwrap_or(default.backward_strength_factor),
-			}
+	js.map_or_else(LocationConfig::default, |js| {
+		let default = LocationConfig::default();
+		LocationConfig {
+			familiarity_k: js.familiarity_k.unwrap_or(default.familiarity_k),
+			stale_threshold_days: js
+				.stale_threshold_days
+				.unwrap_or(default.stale_threshold_days),
+			max_decay_rate: js.max_decay_rate.unwrap_or(default.max_decay_rate),
+			decay_dampening: js.decay_dampening.unwrap_or(default.decay_dampening),
+			base_floor: js.base_floor.unwrap_or(default.base_floor),
+			sticky_bonus: js.sticky_bonus.unwrap_or(default.sticky_bonus),
+			well_known_threshold: js
+				.well_known_threshold
+				.unwrap_or(default.well_known_threshold),
+			task_same_activity_multiplier: js
+				.task_same_activity_multiplier
+				.unwrap_or(default.task_same_activity_multiplier),
+			task_diff_activity_multiplier: js
+				.task_diff_activity_multiplier
+				.unwrap_or(default.task_diff_activity_multiplier),
+			time_same_activity_multiplier: js
+				.time_same_activity_multiplier
+				.unwrap_or(default.time_same_activity_multiplier),
+			time_diff_activity_multiplier: js
+				.time_diff_activity_multiplier
+				.unwrap_or(default.time_diff_activity_multiplier),
+			backward_strength_factor: js
+				.backward_strength_factor
+				.unwrap_or(default.backward_strength_factor),
 		}
-	}
+	})
 }
 
-fn js_location_to_core(js: JsLocationIntuition) -> LocationIntuition {
+const fn js_location_to_core(js: JsLocationIntuition) -> LocationIntuition {
 	LocationIntuition {
 		id: js.id,
 		familiarity: js.familiarity,
@@ -438,7 +434,7 @@ fn js_location_to_core(js: JsLocationIntuition) -> LocationIntuition {
 	}
 }
 
-fn js_assoc_to_core(js: JsLocationAssociation) -> LocationAssociation {
+const fn js_assoc_to_core(js: JsLocationAssociation) -> LocationAssociation {
 	LocationAssociation {
 		source: js.source,
 		target: js.target,
@@ -468,6 +464,7 @@ fn parse_activity_type(s: &str) -> Option<ActivityType> {
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp, clippy::suboptimal_flops)]
 mod tests {
 	use super::*;
 
