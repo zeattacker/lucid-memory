@@ -36,8 +36,8 @@ function tsFamiliarity(accessCount: number, k = 0.1): number {
 
 function tsAssociationStrength(
 	count: number,
-	sameTask: boolean,
-	sameActivity: boolean
+	isSameTask: boolean,
+	isSameActivity: boolean
 ): number {
 	const multipliers = {
 		taskSame: 5.0,
@@ -45,11 +45,11 @@ function tsAssociationStrength(
 		timeSame: 2.0,
 		timeDiff: 1.0,
 	}
-	const multiplier = sameTask
-		? sameActivity
+	const multiplier = isSameTask
+		? isSameActivity
 			? multipliers.taskSame
 			: multipliers.taskDiff
-		: sameActivity
+		: isSameActivity
 			? multipliers.timeSame
 			: multipliers.timeDiff
 	const effectiveCount = count * multiplier
@@ -289,12 +289,12 @@ describe("Rust vs TypeScript: Activity Inference", () => {
 
 describe("Rust vs TypeScript: Association Strength", () => {
 	const testCases = [
-		{ count: 1, sameTask: true, sameActivity: true },
-		{ count: 1, sameTask: true, sameActivity: false },
-		{ count: 1, sameTask: false, sameActivity: true },
-		{ count: 1, sameTask: false, sameActivity: false },
-		{ count: 5, sameTask: true, sameActivity: true },
-		{ count: 10, sameTask: false, sameActivity: false },
+		{ count: 1, isSameTask: true, isSameActivity: true },
+		{ count: 1, isSameTask: true, isSameActivity: false },
+		{ count: 1, isSameTask: false, isSameActivity: true },
+		{ count: 1, isSameTask: false, isSameActivity: false },
+		{ count: 5, isSameTask: true, isSameActivity: true },
+		{ count: 10, isSameTask: false, isSameActivity: false },
 	]
 
 	it("produces identical association strength values", () => {
@@ -306,13 +306,13 @@ describe("Rust vs TypeScript: Association Strength", () => {
 		for (const tc of testCases) {
 			const rustResult = native.locationAssociationStrength(
 				tc.count,
-				tc.sameTask,
-				tc.sameActivity
+				tc.isSameTask,
+				tc.isSameActivity
 			)
 			const tsResult = tsAssociationStrength(
 				tc.count,
-				tc.sameTask,
-				tc.sameActivity
+				tc.isSameTask,
+				tc.isSameActivity
 			)
 
 			expect(rustResult).toBeCloseTo(tsResult, 10)

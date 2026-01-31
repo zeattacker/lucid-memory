@@ -59,7 +59,7 @@ type JsRetrievalConfig = {
 	spreadingDecay?: number
 	minProbability?: number
 	maxResults?: number
-	bidirectional?: boolean
+	isBidirectional?: boolean
 }
 
 export interface RetrievalCandidate {
@@ -300,7 +300,7 @@ export class LucidRetrieval {
 			spreadingDecay: 0.7,
 			minProbability: config.minProbability,
 			maxResults: limit,
-			bidirectional: true,
+			isBidirectional: true,
 		}
 
 		// Call native Rust retrieval

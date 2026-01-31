@@ -123,8 +123,8 @@ describe("LucidStorage", () => {
 			expect(retrieved?.length).toBe(5)
 
 			// Check values are close (floating point)
-			// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
 			for (let i = 0; i < vector.length; i++) {
+				// biome-ignore lint/style/noNonNullAssertion: validated above with toBeDefined()
 				expect(Math.abs(retrieved![i] - vector[i])).toBeLessThan(0.0001)
 			}
 		})
@@ -373,8 +373,8 @@ describe("LucidStorage", () => {
 				wasDirectAccess: true,
 			})
 
-			// biome-ignore lint/style/noNonNullAssertion: just recorded above
 			const contexts = storage.getAccessContexts(
+				// biome-ignore lint/style/noNonNullAssertion: just recorded above
 				storage.getLocationByPath("/src/buggy.ts")!.id
 			)
 
@@ -390,8 +390,8 @@ describe("LucidStorage", () => {
 				activityType: "refactoring",
 			})
 
-			// biome-ignore lint/style/noNonNullAssertion: just recorded above
 			const contexts = storage.getAccessContexts(
+				// biome-ignore lint/style/noNonNullAssertion: just recorded above
 				storage.getLocationByPath("/src/code.ts")!.id
 			)
 
@@ -459,11 +459,11 @@ describe("LucidStorage", () => {
 			expect(success).toBe(true)
 
 			const loc = storage.getLocationByPath("/src/config.ts")
-			expect(loc?.pinned).toBe(true)
+			expect(loc?.isPinned).toBe(true)
 
 			storage.pinLocation("/src/config.ts", false)
 			const unpinned = storage.getLocationByPath("/src/config.ts")
-			expect(unpinned?.pinned).toBe(false)
+			expect(unpinned?.isPinned).toBe(false)
 		})
 
 		it("merges locations on rename", () => {
@@ -476,6 +476,7 @@ describe("LucidStorage", () => {
 				})
 			}
 
+			// biome-ignore lint/style/noNonNullAssertion: just recorded above in loop
 			const oldLoc = storage.getLocationByPath("/src/old-name.ts")!
 			const oldFamiliarity = oldLoc.familiarity
 			const oldAccessCount = oldLoc.accessCount

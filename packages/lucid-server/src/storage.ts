@@ -39,8 +39,8 @@ let nativeLocation: {
 	}
 	locationAssociationStrength: (
 		currentCount: number,
-		sameTask: boolean,
-		sameActivity: boolean,
+		isSameTask: boolean,
+		isSameActivity: boolean,
 		config?: unknown
 	) => number
 	locationIsWellKnown: (familiarity: number, config?: unknown) => boolean
@@ -133,7 +133,7 @@ export interface LocationIntuition {
 	createdAt: string
 	updatedAt: string
 	contextLimit: number
-	pinned: boolean
+	isPinned: boolean
 }
 
 export interface FileAccessRecord {
@@ -373,6 +373,7 @@ export class LucidStorage {
 		// Record initial access
 		this.recordAccess(id)
 
+		// biome-ignore lint/style/noNonNullAssertion: just inserted with this id
 		return this.getMemory(id)!
 	}
 
@@ -946,6 +947,7 @@ export class LucidStorage {
 			)
 
 		// Get the location (whether inserted or updated)
+		// biome-ignore lint/style/noNonNullAssertion: just upserted this location
 		const location = this.getLocationByPath(record.path, record.projectId)!
 
 		// Record access context (entorhinal binding)
@@ -1018,12 +1020,12 @@ export class LucidStorage {
 			for (const other of taskLocations) {
 				if (other.locationId !== locationId) {
 					// Same task = true, activity match determines strength
-					const sameActivity = other.activityType === activityType
+					const isSameActivity = other.activityType === activityType
 					this.strengthenLocationAssociation(
 						other.locationId,
 						locationId,
 						true,
-						sameActivity
+						isSameActivity
 					)
 				}
 			}
@@ -1057,12 +1059,12 @@ export class LucidStorage {
 			}
 
 			// Time-based: not same task, activity match determines strength
-			const sameActivity = recent.activityType === activityType
+			const isSameActivity = recent.activityType === activityType
 			this.strengthenLocationAssociation(
 				recent.locationId,
 				locationId,
 				false,
-				sameActivity
+				isSameActivity
 			)
 		}
 
@@ -1094,18 +1096,28 @@ export class LucidStorage {
 	private strengthenLocationAssociation(
 		sourceId: string,
 		targetId: string,
-		sameTask: boolean,
-		sameActivity: boolean
+		isSameTask: boolean,
+		isSameActivity: boolean
 	): void {
 		const now = new Date().toISOString()
 
 		// Compute initial strength using Rust if available
 		const initialStrength = nativeLocation
-			? nativeLocation.locationAssociationStrength(1, sameTask, sameActivity)
-			: this.computeAssociationStrengthTS(1, sameTask, sameActivity)
+			? nativeLocation.locationAssociationStrength(
+					1,
+					isSameTask,
+					isSameActivity
+				)
+			: this.computeAssociationStrengthTS(1, isSameTask, isSameActivity)
 
 		// Determine multiplier for SQL update (TypeScript fallback logic)
-		const multiplier = sameTask ? (sameActivity ? 5 : 3) : sameActivity ? 2 : 1
+		const multiplier = isSameTask
+			? isSameActivity
+				? 5
+				: 3
+			: isSameActivity
+				? 2
+				: 1
 
 		// Upsert in both directions for bidirectional association
 		for (const [src, tgt] of [
@@ -1140,10 +1152,16 @@ export class LucidStorage {
 	 */
 	private computeAssociationStrengthTS(
 		count: number,
-		sameTask: boolean,
-		sameActivity: boolean
+		isSameTask: boolean,
+		isSameActivity: boolean
 	): number {
-		const multiplier = sameTask ? (sameActivity ? 5 : 3) : sameActivity ? 2 : 1
+		const multiplier = isSameTask
+			? isSameActivity
+				? 5
+				: 3
+			: isSameActivity
+				? 2
+				: 1
 		const effectiveCount = count * multiplier
 		return 1.0 - 1.0 / (1.0 + 0.1 * effectiveCount)
 	}
@@ -1444,14 +1462,14 @@ export class LucidStorage {
 	/**
 	 * Pin/unpin a location to exempt it from orphan detection.
 	 */
-	pinLocation(path: string, pinned: boolean, projectId?: string): boolean {
+	pinLocation(path: string, isPinned: boolean, projectId?: string): boolean {
 		const result = this.db
 			.prepare(`
       UPDATE location_intuitions
       SET pinned = ?, updated_at = datetime('now')
       WHERE path = ? AND project_id = ?
     `)
-			.run(pinned ? 1 : 0, path, this.normalizeProjectId(projectId))
+			.run(isPinned ? 1 : 0, path, this.normalizeProjectId(projectId))
 
 		return result.changes > 0
 	}
@@ -1716,7 +1734,7 @@ export class LucidStorage {
 			createdAt: row.created_at,
 			updatedAt: row.updated_at,
 			contextLimit: row.context_limit,
-			pinned: row.pinned === 1,
+			isPinned: row.pinned === 1,
 		}
 	}
 
