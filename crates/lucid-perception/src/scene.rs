@@ -187,10 +187,7 @@ pub fn detect_scene_changes(
 
 		debug!(
 			frame = frame.frame_number,
-			distance,
-			is_scene_change,
-			is_duplicate,
-			"Processed frame"
+			distance, is_scene_change, is_duplicate, "Processed frame"
 		);
 
 		candidates.push(FrameCandidate {

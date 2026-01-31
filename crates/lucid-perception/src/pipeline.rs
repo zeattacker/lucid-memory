@@ -10,7 +10,9 @@ use tracing::{debug, instrument};
 
 use crate::error::{PerceptionError, Result};
 use crate::scene::{detect_scene_changes, FrameCandidate, SceneConfig};
-use crate::video::{extract_frames, ExtractedFrame, VideoConfig, VideoMetadata, get_video_metadata};
+use crate::video::{
+	extract_frames, get_video_metadata, ExtractedFrame, VideoConfig, VideoMetadata,
+};
 
 #[cfg(feature = "transcription")]
 use crate::transcribe::{transcribe_video, TranscriptionConfig, TranscriptionResult};
@@ -200,7 +202,10 @@ pub async fn process_video(
 	};
 	stats.scene_detection_time_ms = scene_start.elapsed().as_millis() as u64;
 
-	stats.scene_changes = frame_candidates.iter().filter(|f| f.is_scene_change).count();
+	stats.scene_changes = frame_candidates
+		.iter()
+		.filter(|f| f.is_scene_change)
+		.count();
 	stats.duplicates = frame_candidates.iter().filter(|f| f.is_duplicate).count();
 
 	// Process transcription result

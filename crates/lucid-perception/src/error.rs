@@ -91,10 +91,7 @@ impl PerceptionError {
 	/// Check if this error is due to a missing dependency (FFmpeg, Whisper model).
 	#[must_use]
 	pub fn is_missing_dependency(&self) -> bool {
-		matches!(
-			self,
-			Self::FfmpegNotFound | Self::FfprobeNotFound
-		) || {
+		matches!(self, Self::FfmpegNotFound | Self::FfprobeNotFound) || {
 			#[cfg(feature = "transcription")]
 			{
 				matches!(self, Self::WhisperModelNotFound(_))

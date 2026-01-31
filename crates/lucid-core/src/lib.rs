@@ -135,11 +135,10 @@ pub use location::{
 pub use visual::{
 	compute_pruning_candidates, compute_tag_strength, prepare_frame_description_prompt,
 	prepare_synthesis_prompt, retrieve_visual, select_frames_for_description, should_prune,
-	should_tag, ConsolidationState, ConsolidationWindow, EmotionalContext,
-	FrameCandidate, FrameDescriptionConfig, FrameDescriptionResult, PruningCandidate,
-	PruningReason, TagReason, TranscriptSegment, VisualConfig, VisualConsolidationState,
-	VisualMemory, VisualRetrievalCandidate, VisualRetrievalConfig, VisualRetrievalInput,
-	VisualSource, VisualTag,
+	should_tag, ConsolidationState, ConsolidationWindow, EmotionalContext, FrameCandidate,
+	FrameDescriptionConfig, FrameDescriptionResult, PruningCandidate, PruningReason, TagReason,
+	TranscriptSegment, VisualConfig, VisualConsolidationState, VisualMemory,
+	VisualRetrievalCandidate, VisualRetrievalConfig, VisualRetrievalInput, VisualSource, VisualTag,
 };
 
 /// Library version

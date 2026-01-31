@@ -176,13 +176,13 @@ async fn extract_audio(video_path: impl AsRef<Path>, output_path: impl AsRef<Pat
 		])
 		.arg(video_path)
 		.args([
-			"-vn",          // No video
+			"-vn", // No video
 			"-acodec",
-			"pcm_s16le",   // 16-bit PCM
+			"pcm_s16le", // 16-bit PCM
 			"-ar",
-			"16000",       // 16kHz sample rate
+			"16000", // 16kHz sample rate
 			"-ac",
-			"1",           // Mono
+			"1", // Mono
 		])
 		.arg(output_path)
 		.stdout(Stdio::null())
@@ -262,7 +262,10 @@ pub async fn transcribe_video(
 }
 
 /// Synchronous transcription (for use in blocking context).
-fn transcribe_audio_sync(audio_path: &Path, config: &TranscriptionConfig) -> Result<TranscriptionResult> {
+fn transcribe_audio_sync(
+	audio_path: &Path,
+	config: &TranscriptionConfig,
+) -> Result<TranscriptionResult> {
 	// Load Whisper model
 	let ctx = WhisperContext::new_with_params(
 		config.model_path.to_str().ok_or_else(|| {
@@ -276,13 +279,13 @@ fn transcribe_audio_sync(audio_path: &Path, config: &TranscriptionConfig) -> Res
 	let audio_data = std::fs::read(audio_path)?;
 
 	// Parse WAV header and get samples
-	let samples = parse_wav_samples(&audio_data)
-		.map_err(|e| PerceptionError::TranscriptionFailed(e))?;
+	let samples =
+		parse_wav_samples(&audio_data).map_err(|e| PerceptionError::TranscriptionFailed(e))?;
 
 	// Create state
-	let mut state = ctx
-		.create_state()
-		.map_err(|e| PerceptionError::TranscriptionFailed(format!("Failed to create state: {e}")))?;
+	let mut state = ctx.create_state().map_err(|e| {
+		PerceptionError::TranscriptionFailed(format!("Failed to create state: {e}"))
+	})?;
 
 	// Configure transcription parameters
 	let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
@@ -321,13 +324,11 @@ fn transcribe_audio_sync(audio_path: &Path, config: &TranscriptionConfig) -> Res
 	for i in 0..num_segments {
 		let start_ms = state.full_get_segment_t0(i).map_err(|e| {
 			PerceptionError::TranscriptionFailed(format!("Failed to get segment start: {e}"))
-		})? as i64
-			* 10; // whisper uses 10ms units
+		})? as i64 * 10; // whisper uses 10ms units
 
 		let end_ms = state.full_get_segment_t1(i).map_err(|e| {
 			PerceptionError::TranscriptionFailed(format!("Failed to get segment end: {e}"))
-		})? as i64
-			* 10;
+		})? as i64 * 10;
 
 		let text = state.full_get_segment_text(i).map_err(|e| {
 			PerceptionError::TranscriptionFailed(format!("Failed to get segment text: {e}"))
@@ -376,12 +377,9 @@ fn parse_wav_samples(data: &[u8]) -> std::result::Result<Vec<f32>, String> {
 	let mut pos = 12;
 	while pos + 8 < data.len() {
 		let chunk_id = &data[pos..pos + 4];
-		let chunk_size = u32::from_le_bytes([
-			data[pos + 4],
-			data[pos + 5],
-			data[pos + 6],
-			data[pos + 7],
-		]) as usize;
+		let chunk_size =
+			u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+				as usize;
 
 		if chunk_id == b"data" {
 			let samples_start = pos + 8;

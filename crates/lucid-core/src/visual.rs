@@ -746,7 +746,11 @@ pub fn compute_pruning_candidates(
 		.collect();
 
 	// Sort by score (highest first = most prunable)
-	candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+	candidates.sort_by(|a, b| {
+		b.score
+			.partial_cmp(&a.score)
+			.unwrap_or(std::cmp::Ordering::Equal)
+	});
 
 	candidates
 }
@@ -981,9 +985,8 @@ pub fn prepare_frame_description_prompt(
 		format!("\n\nAudio at this moment: \"{t}\"")
 	});
 
-	let shared_context = shared_by.map_or_else(String::new, |s| {
-		format!(" This was shared by {s}.")
-	});
+	let shared_context =
+		shared_by.map_or_else(String::new, |s| format!(" This was shared by {s}."));
 
 	let object_instruction = if config.detect_objects {
 		"\n- objects: [list of key objects/people visible]"
@@ -1055,9 +1058,8 @@ pub fn prepare_synthesis_prompt(
 		);
 	}
 
-	let transcript_section = transcript.map_or_else(String::new, |t| {
-		format!("\n\nTranscript:\n\"{t}\"")
-	});
+	let transcript_section =
+		transcript.map_or_else(String::new, |t| format!("\n\nTranscript:\n\"{t}\""));
 
 	format!(
 		"Synthesize these frame descriptions into a cohesive 2-3 sentence summary of what this {video_duration_seconds:.0}s video shows.

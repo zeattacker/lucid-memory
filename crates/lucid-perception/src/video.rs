@@ -332,11 +332,7 @@ pub async fn extract_frame_at(
 	}
 
 	let output = Command::new("ffmpeg")
-		.args([
-			"-ss",
-			&format!("{timestamp_seconds:.3}"),
-			"-i",
-		])
+		.args(["-ss", &format!("{timestamp_seconds:.3}"), "-i"])
 		.arg(video_path)
 		.args([
 			"-vframes",
@@ -513,7 +509,8 @@ async fn extract_keyframes_internal(
 					let timestamp = if metadata.frame_rate > 0.0 && metadata.duration_seconds > 0.0
 					{
 						// Rough estimate: keyframes are roughly evenly distributed
-						let keyframe_interval = metadata.duration_seconds / (frames.len() + 1) as f64;
+						let keyframe_interval =
+							metadata.duration_seconds / (frames.len() + 1) as f64;
 						frame_number as f64 * keyframe_interval
 					} else {
 						0.0

@@ -22,11 +22,10 @@ use lucid_core::{
 	spreading::Association as CoreAssociation,
 	visual::{
 		compute_pruning_candidates as core_pruning_candidates,
-		compute_tag_strength as core_tag_strength,
-		retrieve_visual as core_retrieve_visual,
-		should_prune as core_should_prune, should_tag as core_should_tag,
-		ConsolidationState, EmotionalContext, PruningReason, VisualConfig, VisualMemory,
-		VisualRetrievalConfig, VisualRetrievalInput, VisualSource,
+		compute_tag_strength as core_tag_strength, retrieve_visual as core_retrieve_visual,
+		should_prune as core_should_prune, should_tag as core_should_tag, ConsolidationState,
+		EmotionalContext, PruningReason, VisualConfig, VisualMemory, VisualRetrievalConfig,
+		VisualRetrievalInput, VisualSource,
 	},
 };
 
@@ -633,7 +632,13 @@ pub fn visual_should_prune(
 	config: Option<JsVisualConfig>,
 ) -> bool {
 	let cfg = js_visual_config_to_core(config);
-	core_should_prune(significance, days_since_access, is_pinned, is_keyframe, &cfg)
+	core_should_prune(
+		significance,
+		days_since_access,
+		is_pinned,
+		is_keyframe,
+		&cfg,
+	)
 }
 
 /// Compute pruning candidates from visual memories.
@@ -741,11 +746,8 @@ pub fn video_select_frames(
 			.collect()
 	});
 
-	let result = select_frames_for_description(
-		&core_frames,
-		max_frames as usize,
-		core_segments.as_deref(),
-	);
+	let result =
+		select_frames_for_description(&core_frames, max_frames as usize, core_segments.as_deref());
 
 	result.into_iter().map(|i| i as u32).collect()
 }
@@ -849,7 +851,9 @@ fn js_visual_config_to_core(js: Option<JsVisualConfig>) -> VisualConfig {
 	})
 }
 
-fn js_visual_retrieval_config_to_core(js: Option<JsVisualRetrievalConfig>) -> VisualRetrievalConfig {
+fn js_visual_retrieval_config_to_core(
+	js: Option<JsVisualRetrievalConfig>,
+) -> VisualRetrievalConfig {
 	js.map_or_else(VisualRetrievalConfig::default, |js| {
 		let default = VisualRetrievalConfig::default();
 		VisualRetrievalConfig {

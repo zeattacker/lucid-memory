@@ -380,13 +380,10 @@ fn js_video_config_to_core(js: Option<JsVideoConfig>) -> VideoConfig {
 			max_frames: js.max_frames.unwrap_or(default.max_frames as u32) as usize,
 			interval_seconds: js.interval_seconds.unwrap_or(default.interval_seconds),
 			quality: js.quality.unwrap_or(default.quality),
-			format: js
-				.format
-				.as_deref()
-				.map_or(default.format, |s| match s {
-					"png" => ImageFormat::Png,
-					_ => ImageFormat::Jpeg,
-				}),
+			format: js.format.as_deref().map_or(default.format, |s| match s {
+				"png" => ImageFormat::Png,
+				_ => ImageFormat::Jpeg,
+			}),
 			keyframes_only: js.keyframes_only.unwrap_or(default.keyframes_only),
 		}
 	})
@@ -398,7 +395,9 @@ fn js_scene_config_to_core(js: Option<JsSceneConfig>) -> SceneConfig {
 		SceneConfig {
 			hash_size: js.hash_size.unwrap_or(default.hash_size),
 			scene_threshold: js.scene_threshold.unwrap_or(default.scene_threshold),
-			duplicate_threshold: js.duplicate_threshold.unwrap_or(default.duplicate_threshold),
+			duplicate_threshold: js
+				.duplicate_threshold
+				.unwrap_or(default.duplicate_threshold),
 		}
 	})
 }
@@ -425,7 +424,9 @@ fn js_pipeline_config_to_core(js: Option<JsPipelineConfig>) -> PipelineConfig {
 		PipelineConfig {
 			video: js_video_config_to_core(js.video),
 			scene: js_scene_config_to_core(js.scene),
-			transcription: js.transcription.map(|t| js_transcription_config_to_core(Some(t))),
+			transcription: js
+				.transcription
+				.map(|t| js_transcription_config_to_core(Some(t))),
 			enable_scene_detection: js
 				.enable_scene_detection
 				.unwrap_or(default.enable_scene_detection),
