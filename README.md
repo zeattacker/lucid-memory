@@ -4,20 +4,19 @@
 
 Memory for AI that actually works like memory—local, fast, and cognitive. Give Claude the power to remember beyond compaction, across any number of projects- and all with less token use or context than most SKILL.md files.
 
-<div align="center">
-
 ```bash
 curl -fsSL lucidmemory.dev/install | bash
 ```
 
+<div align="center">
 <sub>Works with Claude Code · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
-
 <br><br>
-<b>New in 0.3.0:</b> <a href="#visual-memory">Visual Memory</a> — Claude now sees and remembers images and videos you share, recalling them when relevant.
-
-<b>Coming in 0.4.0:</b> <a href="#visual-memory">Procedural Memory</a> — Upgrade declarative memory to procedural memory. This enables Claude to learn your work flow, develop instincts, automatically suggest workflows based on context, recognize deviations, and create muscle memory for actions. No more searching or even directing Claude to a common file location - it just knows. 
-
 </div>
+
+**New in 0.3.0:** <a href="#visual-memory">Visual Memory</a> — Claude now sees and remembers images and videos you share, recalling them when relevant.
+
+**Coming in 0.4.0:** <a href="#visual-memory">Procedural Memory</a> — Upgrade declarative memory to procedural memory. This enables Claude to learn your work flow, develop instincts, automatically suggest workflows based on context, recognize deviations, and create muscle memory for actions. No more searching or even directing Claude to a common file location - it just knows. 
+
 
 ---
 
