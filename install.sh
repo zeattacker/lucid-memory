@@ -830,6 +830,40 @@ else
     success "Whisper model already present"
 fi
 
+# === Auto-Update Preference ===
+
+echo ""
+echo -e "${BOLD}Automatic updates:${NC}"
+echo "  Lucid Memory can automatically check for and install updates"
+echo "  when the server starts. Your data is always preserved."
+echo ""
+
+AUTO_UPDATE=false
+if [ "$INTERACTIVE" = true ]; then
+    read -p "Enable automatic updates? [Y/n]: " AUTO_UPDATE_CHOICE
+    AUTO_UPDATE_CHOICE=${AUTO_UPDATE_CHOICE:-Y}
+    if [[ "$AUTO_UPDATE_CHOICE" =~ ^[Yy]$ ]]; then
+        AUTO_UPDATE=true
+    fi
+else
+    echo "Non-interactive mode, enabling auto-updates by default..."
+    AUTO_UPDATE=true
+fi
+
+# Write config file
+cat > "$LUCID_DIR/config.json" << EOF
+{
+  "autoUpdate": $AUTO_UPDATE,
+  "installedAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+
+if [ "$AUTO_UPDATE" = true ]; then
+    success "Auto-updates enabled"
+else
+    success "Auto-updates disabled (run 'lucid update' manually)"
+fi
+
 # === Configure Claude Code ===
 
 echo ""

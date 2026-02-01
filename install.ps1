@@ -419,6 +419,31 @@ if (-not (Test-Path $WhisperModel)) {
     Write-Success "Whisper model already present"
 }
 
+# === Auto-Update Preference ===
+
+Write-Host ""
+Write-Host "${BOLD}Automatic updates:${NC}"
+Write-Host "  Lucid Memory can automatically check for and install updates"
+Write-Host "  when the server starts. Your data is always preserved."
+Write-Host ""
+
+$AutoUpdateChoice = Read-Host "Enable automatic updates? [Y/n]"
+if (-not $AutoUpdateChoice) { $AutoUpdateChoice = "Y" }
+$AutoUpdate = $AutoUpdateChoice -match "^[Yy]"
+
+# Write config file
+$ConfigContent = @{
+    autoUpdate = $AutoUpdate
+    installedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+}
+$ConfigContent | ConvertTo-Json | Out-File -FilePath "$LucidDir\config.json" -Encoding UTF8
+
+if ($AutoUpdate) {
+    Write-Success "Auto-updates enabled"
+} else {
+    Write-Success "Auto-updates disabled (run 'lucid update' manually)"
+}
+
 # === Configure Claude Code ===
 
 Write-Host ""

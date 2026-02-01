@@ -1675,13 +1675,24 @@ server.tool(
 
 /**
  * Check for updates in the background (non-blocking).
- * Logs a message if a newer version is available.
+ * If auto-update is enabled, installs the update automatically.
+ * Otherwise, logs a message if a newer version is available.
  */
 async function checkForUpdates(): Promise<void> {
 	const REPO = "JasonDocton/lucid-memory"
 	const LUCID_DIR = `${process.env.HOME}/.lucid`
 
 	try {
+		// Check if auto-update is enabled
+		let autoUpdateEnabled = false
+		try {
+			const configPath = `${LUCID_DIR}/config.json`
+			const config = await Bun.file(configPath).json()
+			autoUpdateEnabled = config.autoUpdate === true
+		} catch {
+			// No config file, default to manual updates
+		}
+
 		// Get current version
 		let currentVersion = "0.0.0"
 		try {
@@ -1704,14 +1715,99 @@ async function checkForUpdates(): Promise<void> {
 
 			// Simple version comparison (works for semver)
 			if (latestVersion !== currentVersion && latestVersion > currentVersion) {
-				console.error(
-					`[lucid] ⬆️  Update available: ${currentVersion} → ${latestVersion}`
-				)
-				console.error("[lucid]    Run 'lucid update' to install")
+				if (autoUpdateEnabled) {
+					console.error(
+						`[lucid] ⬆️  Auto-updating: ${currentVersion} → ${latestVersion}`
+					)
+					await performAutoUpdate(REPO, LUCID_DIR)
+				} else {
+					console.error(
+						`[lucid] ⬆️  Update available: ${currentVersion} → ${latestVersion}`
+					)
+					console.error("[lucid]    Run 'lucid update' to install")
+				}
 			}
 		}
 	} catch {
 		// Silently ignore update check failures - not critical
+	}
+}
+
+/**
+ * Perform automatic update in the background.
+ */
+async function performAutoUpdate(repo: string, lucidDir: string): Promise<void> {
+	try {
+		const { promisify } = await import("node:util")
+		const exec = promisify((await import("node:child_process")).exec)
+
+		const tempDir = `${lucidDir}/update-tmp-${Date.now()}`
+		await exec(`mkdir -p ${tempDir}`)
+
+		try {
+			// Clone latest
+			await exec(
+				`git clone --depth 1 https://github.com/${repo}.git ${tempDir}/repo`,
+				{ timeout: 60000 }
+			)
+
+			// Backup current server
+			const backupDir = `${lucidDir}/server-backup-${Date.now()}`
+			await exec(`mv ${lucidDir}/server ${backupDir}`)
+
+			// Copy new server
+			await exec(`cp -r ${tempDir}/repo/packages/lucid-server ${lucidDir}/server`)
+
+			// Copy new native package if exists
+			const nativeExists = await Bun.file(
+				`${tempDir}/repo/packages/lucid-native/package.json`
+			).exists()
+			if (nativeExists) {
+				await exec(`rm -rf ${lucidDir}/native`)
+				await exec(`cp -r ${tempDir}/repo/packages/lucid-native ${lucidDir}/native`)
+			}
+
+			// Update package.json to point to local native
+			const serverPkgPath = `${lucidDir}/server/package.json`
+			const serverPkg = await Bun.file(serverPkgPath).json()
+			serverPkg.dependencies = serverPkg.dependencies || {}
+			serverPkg.dependencies["@lucid-memory/native"] = "file:../native"
+			await Bun.write(serverPkgPath, JSON.stringify(serverPkg, null, 2))
+
+			// Install dependencies
+			await exec(`cd ${lucidDir}/server && bun install --production`, {
+				timeout: 120000,
+			})
+
+			// Clean up
+			await exec(`rm -rf ${tempDir}`)
+			await exec(`rm -rf ${backupDir}`)
+
+			console.error("[lucid] ✓ Auto-update complete!")
+			console.error("[lucid]   Restart Claude Code to use the new version")
+		} catch (updateError) {
+			// Restore backup if exists
+			try {
+				const { stdout } = await exec(
+					`ls -d ${lucidDir}/server-backup-* 2>/dev/null || true`
+				)
+				if (stdout.trim()) {
+					const latestBackup = stdout.trim().split("\n").pop()
+					await exec(`rm -rf ${lucidDir}/server`)
+					await exec(`mv ${latestBackup} ${lucidDir}/server`)
+				}
+			} catch {
+				// Ignore restore errors
+			}
+			await exec(`rm -rf ${tempDir}`)
+			throw updateError
+		}
+	} catch (error) {
+		console.error(
+			"[lucid] ⚠️  Auto-update failed:",
+			error instanceof Error ? error.message : String(error)
+		)
+		console.error("[lucid]    Run 'lucid update' manually to retry")
 	}
 }
 
