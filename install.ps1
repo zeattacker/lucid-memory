@@ -180,13 +180,22 @@ Write-Success "Bun $BunVersion"
 # Install ffmpeg if needed
 if ($NeedFfmpeg) {
     Write-Host "Installing ffmpeg..."
+    $FfmpegInstalled = $false
     try {
-        winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+        $result = winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements 2>&1
         # Refresh PATH
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        Write-Success "ffmpeg installed"
+        if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            $FfmpegInstalled = $true
+        }
     } catch {
-        Write-Fail "Could not install ffmpeg" "Please install manually: winget install ffmpeg"
+        # winget might throw but still install
+    }
+
+    if ($FfmpegInstalled -or (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+        Write-Success "ffmpeg installed"
+    } else {
+        Write-Fail "Could not install ffmpeg" "Please install manually:`n  winget install Gyan.FFmpeg`n  Or download from: https://ffmpeg.org/download.html"
     }
 } else {
     Write-Success "ffmpeg already installed"
@@ -195,17 +204,28 @@ if ($NeedFfmpeg) {
 # Install yt-dlp if needed
 if ($NeedYtdlp) {
     Write-Host "Installing yt-dlp..."
+    $YtdlpInstalled = $false
     try {
         if (Get-Command pip -ErrorAction SilentlyContinue) {
-            pip install yt-dlp
+            pip install --user yt-dlp 2>&1 | Out-Null
+            $YtdlpInstalled = $true
         } elseif (Get-Command pip3 -ErrorAction SilentlyContinue) {
-            pip3 install yt-dlp
+            pip3 install --user yt-dlp 2>&1 | Out-Null
+            $YtdlpInstalled = $true
         } else {
-            winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements
+            winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+            $YtdlpInstalled = $true
         }
-        Write-Success "yt-dlp installed"
+        # Refresh PATH
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
     } catch {
-        Write-Fail "Could not install yt-dlp" "Please install manually: pip install yt-dlp"
+        # Might throw but still install
+    }
+
+    if ($YtdlpInstalled -or (Get-Command yt-dlp -ErrorAction SilentlyContinue)) {
+        Write-Success "yt-dlp installed"
+    } else {
+        Write-Fail "Could not install yt-dlp" "Please install manually:`n  pip install --user yt-dlp`n  Or: winget install yt-dlp.yt-dlp"
     }
 } else {
     Write-Success "yt-dlp already installed"
@@ -213,19 +233,29 @@ if ($NeedYtdlp) {
 
 # Install whisper if needed
 if ($NeedWhisper) {
-    Write-Host "Installing OpenAI Whisper..."
+    Write-Host "Installing OpenAI Whisper (this may take a few minutes)..."
     if ($NeedPip) {
         Write-Fail "pip is not installed" "Please install Python first: https://www.python.org/downloads/`nMake sure to check 'Add Python to PATH' during installation."
     }
+    $WhisperInstalled = $false
     try {
         if (Get-Command pip3 -ErrorAction SilentlyContinue) {
-            pip3 install openai-whisper
-        } else {
-            pip install openai-whisper
+            pip3 install --user openai-whisper 2>&1 | Out-Null
+            $WhisperInstalled = $true
+        } elseif (Get-Command pip -ErrorAction SilentlyContinue) {
+            pip install --user openai-whisper 2>&1 | Out-Null
+            $WhisperInstalled = $true
         }
-        Write-Success "Whisper installed"
+        # Refresh PATH
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
     } catch {
-        Write-Fail "Whisper installation failed" "Please install manually: pip install openai-whisper"
+        # Might throw but still install
+    }
+
+    if ($WhisperInstalled -or (Get-Command whisper -ErrorAction SilentlyContinue)) {
+        Write-Success "Whisper installed"
+    } else {
+        Write-Fail "Whisper installation failed" "Please install manually:`n  pip install --user openai-whisper`n`nNote: Whisper requires Python 3.8+ and may take several minutes."
     }
 } else {
     Write-Success "Whisper already installed"

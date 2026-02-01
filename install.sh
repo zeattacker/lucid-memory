@@ -489,22 +489,34 @@ success "Bun $(bun --version)"
 # Install ffmpeg if needed
 if [ "$NEED_FFMPEG" = true ]; then
     echo "Installing ffmpeg..."
+    FFMPEG_INSTALLED=false
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install ffmpeg
+        if brew install ffmpeg; then
+            FFMPEG_INSTALLED=true
+        fi
     else
         # Linux - try common package managers
         if command -v apt-get &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y ffmpeg
+            if sudo apt-get update && sudo apt-get install -y ffmpeg; then
+                FFMPEG_INSTALLED=true
+            fi
         elif command -v dnf &> /dev/null; then
-            sudo dnf install -y ffmpeg
+            if sudo dnf install -y ffmpeg; then
+                FFMPEG_INSTALLED=true
+            fi
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm ffmpeg
-        else
-            fail "Could not install ffmpeg" \
-                "Please install ffmpeg manually and run this installer again."
+            if sudo pacman -S --noconfirm ffmpeg; then
+                FFMPEG_INSTALLED=true
+            fi
         fi
     fi
-    success "ffmpeg installed"
+
+    if [ "$FFMPEG_INSTALLED" = true ] && command -v ffmpeg &> /dev/null; then
+        success "ffmpeg installed"
+    else
+        fail "Could not install ffmpeg" \
+            "Please install ffmpeg manually and run this installer again.\n  macOS: brew install ffmpeg\n  Ubuntu/Debian: sudo apt install ffmpeg\n  Fedora: sudo dnf install ffmpeg"
+    fi
 else
     success "ffmpeg already installed"
 fi
@@ -512,31 +524,48 @@ fi
 # Install yt-dlp if needed
 if [ "$NEED_YTDLP" = true ]; then
     echo "Installing yt-dlp..."
+    YTDLP_INSTALLED=false
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        brew install yt-dlp
+        if brew install yt-dlp; then
+            YTDLP_INSTALLED=true
+        fi
     else
         # Linux - try pip first, then package managers
         if command -v pip3 &> /dev/null; then
-            pip3 install yt-dlp
+            if pip3 install --user yt-dlp; then
+                YTDLP_INSTALLED=true
+                # Add user bin to PATH for this session
+                export PATH="$HOME/.local/bin:$PATH"
+            fi
         elif command -v pip &> /dev/null; then
-            pip install yt-dlp
+            if pip install --user yt-dlp; then
+                YTDLP_INSTALLED=true
+                export PATH="$HOME/.local/bin:$PATH"
+            fi
         elif command -v apt-get &> /dev/null; then
-            sudo apt-get update && sudo apt-get install -y yt-dlp
+            if sudo apt-get update && sudo apt-get install -y yt-dlp; then
+                YTDLP_INSTALLED=true
+            fi
         elif command -v dnf &> /dev/null; then
-            sudo dnf install -y yt-dlp
-        else
-            fail "Could not install yt-dlp" \
-                "Please install yt-dlp manually: pip install yt-dlp"
+            if sudo dnf install -y yt-dlp; then
+                YTDLP_INSTALLED=true
+            fi
         fi
     fi
-    success "yt-dlp installed"
+
+    if [ "$YTDLP_INSTALLED" = true ] && command -v yt-dlp &> /dev/null; then
+        success "yt-dlp installed"
+    else
+        fail "Could not install yt-dlp" \
+            "Please install yt-dlp manually and run this installer again.\n  pip install --user yt-dlp\n  Or: sudo apt install yt-dlp"
+    fi
 else
     success "yt-dlp already installed"
 fi
 
 # Install whisper if needed
 if [ "$NEED_WHISPER" = true ]; then
-    echo "Installing OpenAI Whisper..."
+    echo "Installing OpenAI Whisper (this may take a few minutes)..."
 
     # Check for pip
     if [ "$NEED_PIP" = true ]; then
@@ -544,17 +573,25 @@ if [ "$NEED_WHISPER" = true ]; then
             "Please install Python and pip first:\n  macOS: brew install python\n  Ubuntu/Debian: sudo apt install python3-pip\n  Fedora: sudo dnf install python3-pip"
     fi
 
+    WHISPER_INSTALLED=false
     if command -v pip3 &> /dev/null; then
-        pip3 install openai-whisper
-    else
-        pip install openai-whisper
+        if pip3 install --user openai-whisper; then
+            WHISPER_INSTALLED=true
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
+    elif command -v pip &> /dev/null; then
+        if pip install --user openai-whisper; then
+            WHISPER_INSTALLED=true
+            export PATH="$HOME/.local/bin:$PATH"
+        fi
     fi
 
-    if ! command -v whisper &> /dev/null; then
+    if [ "$WHISPER_INSTALLED" = true ] && command -v whisper &> /dev/null; then
+        success "Whisper installed"
+    else
         fail "Whisper installation failed" \
-            "Please install manually: pip install openai-whisper"
+            "Please install manually: pip install --user openai-whisper\n\nNote: Whisper requires Python 3.8+ and may take several minutes to install."
     fi
-    success "Whisper installed"
 else
     success "Whisper already installed"
 fi
