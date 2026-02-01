@@ -5,7 +5,14 @@
  * Supports Ollama (local, free) and OpenAI (cloud, paid).
  */
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs"
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+} from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
@@ -13,11 +20,50 @@ import { join } from "node:path"
 const logDir = join(homedir(), ".lucid", "logs")
 const logFile = join(logDir, "embeddings.log")
 
+// Log rotation settings
+const MAX_LOG_SIZE = 10 * 1024 * 1024 // 10MB
+const MAX_OLD_LOGS = 5
+
+/**
+ * Rotate log file if it exceeds MAX_LOG_SIZE.
+ * Creates sequential backups: embeddings.log.1, embeddings.log.2, etc.
+ */
+function rotateLogIfNeeded(): void {
+	try {
+		if (!existsSync(logFile)) return
+
+		const stats = statSync(logFile)
+		if (stats.size < MAX_LOG_SIZE) return
+
+		// Rotate existing old logs (shift numbers up)
+		// Delete oldest if at max
+		const oldestLog = `${logFile}.${MAX_OLD_LOGS}`
+		if (existsSync(oldestLog)) {
+			unlinkSync(oldestLog)
+		}
+
+		// Shift .4 -> .5, .3 -> .4, .2 -> .3, .1 -> .2
+		for (let i = MAX_OLD_LOGS - 1; i >= 1; i--) {
+			const older = `${logFile}.${i}`
+			const newer = `${logFile}.${i + 1}`
+			if (existsSync(older)) {
+				renameSync(older, newer)
+			}
+		}
+
+		// Rename current log to .1
+		renameSync(logFile, `${logFile}.1`)
+	} catch {
+		// Silently fail - rotation is best-effort
+	}
+}
+
 function logError(message: string, error?: Error): void {
 	try {
 		if (!existsSync(logDir)) {
 			mkdirSync(logDir, { recursive: true })
 		}
+		rotateLogIfNeeded()
 		const timestamp = new Date().toISOString()
 		const errorDetail = error ? `: ${error.message}` : ""
 		appendFileSync(logFile, `[${timestamp}] ERROR: ${message}${errorDetail}\n`)
@@ -31,6 +77,7 @@ function logWarn(message: string): void {
 		if (!existsSync(logDir)) {
 			mkdirSync(logDir, { recursive: true })
 		}
+		rotateLogIfNeeded()
 		const timestamp = new Date().toISOString()
 		appendFileSync(logFile, `[${timestamp}] WARN: ${message}\n`)
 	} catch {

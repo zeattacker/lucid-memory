@@ -10,6 +10,7 @@
  *   lucid store "content" --type learning    - Store a memory
  *   lucid stats                              - Show memory stats
  *   lucid status                             - Check system status
+ *   lucid backup                             - Backup the memory database
  */
 
 import { detectProvider } from "./embeddings.ts"
@@ -18,6 +19,9 @@ import type { MemoryType } from "./storage.ts"
 
 const args = process.argv.slice(2)
 const command = args[0]
+
+// Top-level regex for version tag stripping
+const VERSION_TAG_REGEX = /^v/
 
 async function main() {
 	const retrieval = new LucidRetrieval()
@@ -255,16 +259,28 @@ async function main() {
 				if (platform === "darwin") {
 					// macOS: ~/Library/Python/3.X/bin/whisper
 					for (const ver of ["3.13", "3.12", "3.11", "3.10", "3.9", "3.8"]) {
-						possiblePaths.push(path.join(home, "Library", "Python", ver, "bin", "whisper"))
+						possiblePaths.push(
+							path.join(home, "Library", "Python", ver, "bin", "whisper")
+						)
 					}
 				} else if (platform === "linux") {
 					// Linux: ~/.local/bin/whisper
 					possiblePaths.push(path.join(home, ".local", "bin", "whisper"))
 				} else if (platform === "win32") {
 					// Windows: %APPDATA%\Python\PythonXX\Scripts\whisper.exe
-					const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming")
+					const appData =
+						// biome-ignore lint/style/noProcessEnv: CLI requires environment access
+						process.env.APPDATA || path.join(home, "AppData", "Roaming")
 					for (const ver of ["313", "312", "311", "310", "39", "38"]) {
-						possiblePaths.push(path.join(appData, "Python", `Python${ver}`, "Scripts", "whisper.exe"))
+						possiblePaths.push(
+							path.join(
+								appData,
+								"Python",
+								`Python${ver}`,
+								"Scripts",
+								"whisper.exe"
+							)
+						)
 					}
 				}
 
@@ -309,13 +325,17 @@ async function main() {
 					)
 				}
 				if (!hasFfmpeg) {
-					console.log("  - ffmpeg missing. Install with: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)")
+					console.log(
+						"  - ffmpeg missing. Install with: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)"
+					)
 				}
 				if (!hasYtdlp) {
 					console.log("  - yt-dlp missing. Install with: pip install yt-dlp")
 				}
 				if (!hasWhisper) {
-					console.log("  - whisper missing. Install with: pip install openai-whisper")
+					console.log(
+						"  - whisper missing. Install with: pip install openai-whisper"
+					)
 				}
 			}
 			break
@@ -323,6 +343,7 @@ async function main() {
 
 		case "update": {
 			const REPO = "JasonDocton/lucid-memory"
+			// biome-ignore lint/style/noProcessEnv: CLI requires environment access
 			const LUCID_DIR = `${process.env.HOME}/.lucid`
 
 			console.log("🧠 Lucid Memory Update")
@@ -370,7 +391,8 @@ async function main() {
 					}
 				} else {
 					const release = await response.json()
-					const latestVersion = release.tag_name?.replace(/^v/, "") || "unknown"
+					const latestVersion =
+						release.tag_name?.replace(VERSION_TAG_REGEX, "") || "unknown"
 					console.log(`Latest version:  ${latestVersion}`)
 
 					if (currentVersion === latestVersion) {
@@ -384,11 +406,8 @@ async function main() {
 				console.log("")
 				console.log("Downloading update...")
 
-				const { spawn } = await import("node:child_process")
 				const { promisify } = await import("node:util")
-				const exec = promisify(
-					(await import("node:child_process")).exec
-				)
+				const exec = promisify((await import("node:child_process")).exec)
 
 				// Create temp directory and clone
 				const tempDir = `${LUCID_DIR}/update-tmp-${Date.now()}`
@@ -443,7 +462,9 @@ async function main() {
 					console.log("Please restart Claude Code to use the new version.")
 				} catch (updateError) {
 					// Restore backup if exists
-					const backups = await exec(`ls -d ${LUCID_DIR}/server-backup-* 2>/dev/null || true`)
+					const backups = await exec(
+						`ls -d ${LUCID_DIR}/server-backup-* 2>/dev/null || true`
+					)
 					if (backups.stdout.trim()) {
 						const latestBackup = backups.stdout.trim().split("\n").pop()
 						await exec(`rm -rf ${LUCID_DIR}/server`)
@@ -466,6 +487,7 @@ async function main() {
 		}
 
 		case "version": {
+			// biome-ignore lint/style/noProcessEnv: CLI requires environment access
 			const LUCID_DIR = `${process.env.HOME}/.lucid`
 			try {
 				const pkgPath = `${LUCID_DIR}/server/package.json`
@@ -473,6 +495,54 @@ async function main() {
 				console.log(pkg.version || "unknown")
 			} catch {
 				console.log("unknown")
+			}
+			break
+		}
+
+		case "backup": {
+			const { copyFileSync, statSync } = await import("node:fs")
+			const { join } = await import("node:path")
+			const { homedir } = await import("node:os")
+
+			const LUCID_DIR = join(homedir(), ".lucid")
+			const dbPath = join(LUCID_DIR, "memory.db")
+
+			// Check if database exists
+			try {
+				statSync(dbPath)
+			} catch {
+				console.error("No database found at ~/.lucid/memory.db")
+				process.exit(1)
+			}
+
+			// Determine output path
+			const outputArg = args
+				.find((a) => a.startsWith("--output="))
+				?.split("=")[1]
+			const timestamp = new Date()
+				.toISOString()
+				.replace(/[:.]/g, "-")
+				.slice(0, 19)
+			const defaultBackupPath = join(LUCID_DIR, `memory-backup-${timestamp}.db`)
+			const backupPath = outputArg || defaultBackupPath
+
+			try {
+				copyFileSync(dbPath, backupPath)
+				const backupSize = statSync(backupPath).size
+				const sizeKB = Math.round(backupSize / 1024)
+
+				console.log("✓ Backup created")
+				console.log(`  Location: ${backupPath}`)
+				console.log(`  Size: ${sizeKB} KB`)
+				console.log("")
+				console.log("To restore, copy the backup over the original:")
+				console.log(`  cp "${backupPath}" ~/.lucid/memory.db`)
+			} catch (error) {
+				console.error(
+					"Backup failed:",
+					error instanceof Error ? error.message : String(error)
+				)
+				process.exit(1)
 			}
 			break
 		}
@@ -494,12 +564,14 @@ Commands:
   stats                              Show memory statistics
   status                             Check system status
   update                             Check for and install updates
+  backup [--output=path]             Backup the memory database
   version                            Show current version
 
 Examples:
   lucid context "implementing auth" --project=/my/project
   lucid store "Auth uses JWT tokens" --type=decision
-  lucid update
+  lucid backup
+  lucid backup --output=~/my-backup.db
 
 Visual memories are automatically created when images/videos are shared.
 They are automatically retrieved via semantic search on the context command.

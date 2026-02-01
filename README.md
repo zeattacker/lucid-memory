@@ -378,6 +378,17 @@ When memory 0 activates, memory 1 receives proportional activation.
 - Brady, T. F., Konkle, T., Alvarez, G. A., & Oliva, A. (2008). Visual long-term memory has a massive storage capacity for object details. *PNAS*, 105(38), 14325-14329.
 - Tulving, E. (1972). Episodic and semantic memory. In E. Tulving & W. Donaldson (Eds.), *Organization of Memory* — Visual memories as episodic traces bound to context
 
+## Privacy & Data
+
+Lucid Memory runs entirely on your machine. Your memories never leave your computer.
+
+- **Database location:** `~/.lucid/memory.db` (SQLite, unencrypted)
+- **What's stored:** Text summaries of learnings, decisions, and context—not your source code
+- **Removing sensitive data:** Use `memory_forget` tool to delete specific memories
+- **Auto-updates:** Opt-in during installation; can be disabled in `~/.lucid/config.json`
+
+The database contains project context that persists across sessions. Treat it like your shell history—useful for productivity, stored locally with standard file permissions.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE) for details.

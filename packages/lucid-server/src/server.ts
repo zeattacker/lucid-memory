@@ -1680,6 +1680,7 @@ server.tool(
  */
 async function checkForUpdates(): Promise<void> {
 	const REPO = "JasonDocton/lucid-memory"
+	// biome-ignore lint/style/noProcessEnv: Server requires environment access for user home directory
 	const LUCID_DIR = `${process.env.HOME}/.lucid`
 
 	try {
@@ -1736,7 +1737,10 @@ async function checkForUpdates(): Promise<void> {
 /**
  * Perform automatic update in the background.
  */
-async function performAutoUpdate(repo: string, lucidDir: string): Promise<void> {
+async function performAutoUpdate(
+	repo: string,
+	lucidDir: string
+): Promise<void> {
 	try {
 		const { promisify } = await import("node:util")
 		const exec = promisify((await import("node:child_process")).exec)
@@ -1756,7 +1760,9 @@ async function performAutoUpdate(repo: string, lucidDir: string): Promise<void> 
 			await exec(`mv ${lucidDir}/server ${backupDir}`)
 
 			// Copy new server
-			await exec(`cp -r ${tempDir}/repo/packages/lucid-server ${lucidDir}/server`)
+			await exec(
+				`cp -r ${tempDir}/repo/packages/lucid-server ${lucidDir}/server`
+			)
 
 			// Copy new native package if exists
 			const nativeExists = await Bun.file(
@@ -1764,7 +1770,9 @@ async function performAutoUpdate(repo: string, lucidDir: string): Promise<void> 
 			).exists()
 			if (nativeExists) {
 				await exec(`rm -rf ${lucidDir}/native`)
-				await exec(`cp -r ${tempDir}/repo/packages/lucid-native ${lucidDir}/native`)
+				await exec(
+					`cp -r ${tempDir}/repo/packages/lucid-native ${lucidDir}/native`
+				)
 			}
 
 			// Update package.json to point to local native
@@ -1824,7 +1832,7 @@ async function main(): Promise<void> {
 	startBackgroundDecayProcessor()
 
 	// Check for updates in background (non-blocking)
-	checkForUpdates()
+	void checkForUpdates()
 
 	// Now connect to transport
 	const transport = new StdioServerTransport()
