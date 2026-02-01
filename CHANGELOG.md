@@ -5,6 +5,42 @@ All notable changes to Lucid Memory will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2025-02-01
+
+### Fixed
+
+#### Installer Overhaul
+
+The installer has been completely rewritten to ensure reliable installation across all platforms.
+
+**Required Dependencies:**
+- ffmpeg, yt-dlp, and whisper are now required and auto-installed (were silently optional before)
+- lucid-perception package now properly installed for video processing
+- Pre-installation confirmation shows exactly what will be installed
+
+**Windows Parity:**
+- Full-featured PowerShell hook with media detection (was missing visual memory support)
+- Native and perception binaries properly downloaded/built on Windows
+- Complete feature parity with macOS/Linux
+
+**Robustness:**
+- Post-installation verification checks all critical files exist
+- Server wrapper scripts validate Bun and script existence before starting
+- Copy operations validated with proper error messages
+- `lucid status` now shows video processing dependency status
+
+**CI/CD:**
+- Build workflow now produces both lucid-native and lucid-perception binaries
+- Pre-built binaries attached to GitHub releases for all platforms
+
+### Changed
+
+- `lucid status` now checks ffmpeg, yt-dlp, and whisper availability
+- Installers show progress bars for each dependency installation
+- Uninstall scripts show removal summary before proceeding
+
+---
+
 ## [0.3.0] - 2025-01-31
 
 ### Added

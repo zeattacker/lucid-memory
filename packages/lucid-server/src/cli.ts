@@ -227,6 +227,9 @@ async function main() {
 			// Video processing dependencies
 			console.log("Video Processing:")
 			const { execSync } = await import("node:child_process")
+			const fs = await import("node:fs")
+			const path = await import("node:path")
+			const os = await import("node:os")
 
 			const checkCommand = (cmd: string): boolean => {
 				try {
@@ -239,9 +242,46 @@ async function main() {
 				}
 			}
 
+			// Check for whisper in Python user bin directories (pip --user installs here)
+			const checkWhisper = (): boolean => {
+				if (checkCommand("whisper")) return true
+
+				// Check common pip user bin locations
+				const home = os.homedir()
+				const platform = process.platform
+
+				const possiblePaths: string[] = []
+
+				if (platform === "darwin") {
+					// macOS: ~/Library/Python/3.X/bin/whisper
+					for (const ver of ["3.13", "3.12", "3.11", "3.10", "3.9", "3.8"]) {
+						possiblePaths.push(path.join(home, "Library", "Python", ver, "bin", "whisper"))
+					}
+				} else if (platform === "linux") {
+					// Linux: ~/.local/bin/whisper
+					possiblePaths.push(path.join(home, ".local", "bin", "whisper"))
+				} else if (platform === "win32") {
+					// Windows: %APPDATA%\Python\PythonXX\Scripts\whisper.exe
+					const appData = process.env.APPDATA || path.join(home, "AppData", "Roaming")
+					for (const ver of ["313", "312", "311", "310", "39", "38"]) {
+						possiblePaths.push(path.join(appData, "Python", `Python${ver}`, "Scripts", "whisper.exe"))
+					}
+				}
+
+				for (const p of possiblePaths) {
+					try {
+						if (fs.existsSync(p)) return true
+					} catch {
+						// ignore
+					}
+				}
+
+				return false
+			}
+
 			const hasFfmpeg = checkCommand("ffmpeg")
 			const hasYtdlp = checkCommand("yt-dlp")
-			const hasWhisper = checkCommand("whisper")
+			const hasWhisper = checkWhisper()
 
 			console.log(`  ffmpeg: ${hasFfmpeg ? "✓ installed" : "✗ missing"}`)
 			console.log(`  yt-dlp: ${hasYtdlp ? "✓ installed" : "✗ missing"}`)

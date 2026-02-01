@@ -6,37 +6,36 @@ on:
     paths:
       - 'crates/**'
       - 'packages/lucid-native/**'
+      - 'packages/lucid-perception/**'
       - '.github/workflows/build-native.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/**'
       - 'packages/lucid-native/**'
+      - 'packages/lucid-perception/**'
   workflow_dispatch:  # Manual trigger
   release:
     types: [created]
 
 jobs:
-  build:
+  build-native:
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS
+          # macOS (macos-latest is ARM64, can cross-compile to x64)
           - os: macos-latest
             target: aarch64-apple-darwin
             name: darwin-arm64
-          - os: macos-15-intel  # Intel Mac
+          - os: macos-latest
             target: x86_64-apple-darwin
             name: darwin-x64
 
-          # Linux
+          # Linux (x64 only - ARM64 cross-compile has issues with whisper-rs)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux-x64-gnu
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            name: linux-arm64-gnu
 
           # Windows
           - os: windows-latest
@@ -44,7 +43,7 @@ jobs:
             name: win32-x64-msvc
 
     runs-on: ${{ matrix.os }}
-    name: Build - ${{ matrix.name }}
+    name: Native - ${{ matrix.name }}
 
     steps:
       - uses: actions/checkout@v4
@@ -64,33 +63,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install dependencies
+      - name: Install dependencies (lucid-native)
         working-directory: packages/lucid-native
         run: bun install
 
-      - name: Build native module
+      - name: Build lucid-native
         working-directory: packages/lucid-native
         shell: bash
         run: |
-          # Use napi-cross for Linux ARM64 cross-compilation
-          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-            bunx napi build --platform --release \
-              --target ${{ matrix.target }} \
-              --use-napi-cross \
-              --manifest-path ../../crates/lucid-napi/Cargo.toml \
-              --output-dir .
-          else
-            bunx napi build --platform --release \
-              --target ${{ matrix.target }} \
-              --manifest-path ../../crates/lucid-napi/Cargo.toml \
-              --output-dir .
-          fi
+          bunx napi build --platform --release \
+            --target ${{ matrix.target }} \
+            --manifest-path ../../crates/lucid-napi/Cargo.toml \
+            --output-dir .
 
-      - name: Rename output file
+      - name: Rename lucid-native output
         working-directory: packages/lucid-native
         shell: bash
         run: |
-          # Find any .node file and rename to expected name
           for f in *.node; do
             if [ -f "$f" ]; then
               mv "$f" "lucid-native.${{ matrix.name }}.node"
@@ -98,21 +87,91 @@ jobs:
             fi
           done
 
-      - name: List built files
-        working-directory: packages/lucid-native
-        shell: bash
-        run: ls -la *.node || echo "No .node files found"
-
-      - name: Upload artifact
+      - name: Upload lucid-native artifact
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.name }}
           path: packages/lucid-native/*.node
           if-no-files-found: error
 
+  build-perception:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS (macos-latest is ARM64, can cross-compile to x64)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: darwin-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: darwin-x64
+
+          # Linux (x64 only - ARM64 cross-compile has issues with whisper-rs)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64-gnu
+
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: win32-x64-msvc
+
+    runs-on: ${{ matrix.os }}
+    name: Perception - ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install dependencies (lucid-perception)
+        working-directory: packages/lucid-perception
+        run: bun install
+
+      - name: Build lucid-perception
+        working-directory: packages/lucid-perception
+        shell: bash
+        run: |
+          bunx napi build --platform --release \
+            --target ${{ matrix.target }} \
+            --manifest-path ../../crates/lucid-perception-napi/Cargo.toml \
+            --output-dir .
+
+      - name: Rename lucid-perception output
+        working-directory: packages/lucid-perception
+        shell: bash
+        run: |
+          for f in *.node; do
+            if [ -f "$f" ]; then
+              mv "$f" "lucid-perception.${{ matrix.name }}.node"
+              break
+            fi
+          done
+
+      - name: Upload lucid-perception artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: perception-${{ matrix.name }}
+          path: packages/lucid-perception/*.node
+          if-no-files-found: error
+
   # Combine all binaries and update the repo
   publish:
-    needs: build
+    needs: [build-native, build-perception]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
@@ -128,26 +187,36 @@ jobs:
         with:
           path: artifacts
 
-      - name: Copy binaries to package
+      - name: Copy binaries to packages
         run: |
-          mkdir -p packages/lucid-native
-          # Copy each binary, they should have unique names now
+          mkdir -p packages/lucid-native packages/lucid-perception
+
+          # Copy native binaries
           for dir in artifacts/native-*; do
             cp "$dir"/*.node packages/lucid-native/ || true
           done
-          ls -la packages/lucid-native/
+
+          # Copy perception binaries
+          for dir in artifacts/perception-*; do
+            cp "$dir"/*.node packages/lucid-perception/ || true
+          done
+
+          echo "=== lucid-native ==="
+          ls -la packages/lucid-native/*.node || echo "No native binaries"
+          echo "=== lucid-perception ==="
+          ls -la packages/lucid-perception/*.node || echo "No perception binaries"
 
       - name: Commit binaries
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add packages/lucid-native/*.node
+          git add packages/lucid-native/*.node packages/lucid-perception/*.node
           git diff --staged --quiet || git commit -m "chore: update native binaries [skip ci]"
           git push
 
   # Attach binaries to releases
   release:
-    needs: build
+    needs: [build-native, build-perception]
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
 
@@ -157,18 +226,27 @@ jobs:
         with:
           path: artifacts
 
-      - name: Create release archive
+      - name: Prepare release files
         run: |
           mkdir -p release
+
+          # Copy all binaries
           for dir in artifacts/native-*; do
-            name=$(basename "$dir")
             cp "$dir"/*.node "release/"
           done
-          cd release && zip -r ../lucid-native-binaries.zip .
+          for dir in artifacts/perception-*; do
+            cp "$dir"/*.node "release/"
+          done
+
+          # Create zip archive
+          cd release && zip -r ../lucid-binaries.zip .
+
+          echo "=== Release files ==="
+          ls -la
 
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            lucid-native-binaries.zip
+            lucid-binaries.zip
             release/*.node
