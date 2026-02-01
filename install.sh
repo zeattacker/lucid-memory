@@ -44,8 +44,8 @@ C6='\033[38;5;159m'  # Cyan
 # Minimum disk space required (in KB) - 5GB
 MIN_DISK_SPACE=5242880
 
-# Installation steps for progress tracking
-TOTAL_STEPS=7
+# Installation steps for progress tracking (adjusted dynamically based on what needs installing)
+TOTAL_STEPS=8
 CURRENT_STEP=0
 
 # === Visual Functions ===
@@ -327,25 +327,30 @@ restart_claude_code() {
 
 # === Pre-flight Checks ===
 
-echo "Running pre-flight checks..."
+echo "Checking system requirements..."
 echo ""
 
 # Check for Windows
 check_windows
 
-# Check for git
+# Check for git (required, cannot auto-install)
 if ! command -v git &> /dev/null; then
     fail "Git is not installed" \
         "Please install Git first:\n  macOS: xcode-select --install\n  Ubuntu/Debian: sudo apt install git\n  Fedora: sudo dnf install git"
 fi
-success "Git installed"
 
-# Check for curl (should exist if running this script, but just in case)
+# Check for curl (required, cannot auto-install)
 if ! command -v curl &> /dev/null; then
     fail "curl is not installed" \
         "Please install curl first:\n  Ubuntu/Debian: sudo apt install curl\n  Fedora: sudo dnf install curl"
 fi
-success "curl installed"
+
+# Check for Claude Code (required, cannot auto-install)
+CLAUDE_SETTINGS_DIR="$HOME/.claude"
+if [ ! -d "$CLAUDE_SETTINGS_DIR" ]; then
+    fail "Claude Code not found" \
+        "Please install Claude Code first: https://claude.ai/download\n\nAfter installing, run this installer again."
+fi
 
 # Check disk space
 AVAILABLE_SPACE=$(get_available_space)
@@ -354,17 +359,126 @@ if [ "$AVAILABLE_SPACE" -lt "$MIN_DISK_SPACE" ]; then
     fail "Insufficient disk space" \
         "Lucid Memory requires at least 5GB of free space for the embedding model.\nAvailable: ${AVAILABLE_GB}GB"
 fi
-AVAILABLE_GB=$((AVAILABLE_SPACE / 1048576))
-success "Disk space OK (${AVAILABLE_GB}GB available)"
+
+# Check existing MCP config
+MCP_CONFIG="$HOME/.claude.json"
+if [ -f "$MCP_CONFIG" ]; then
+    if ! validate_json "$MCP_CONFIG"; then
+        fail "Existing MCP config is malformed" \
+            "The file $MCP_CONFIG contains invalid JSON.\nPlease fix or remove it, then run this installer again."
+    fi
+fi
+
+# === Detect what needs to be installed ===
+
+INSTALL_LIST=""
+NEED_BREW=false
+NEED_BUN=false
+NEED_FFMPEG=false
+NEED_YTDLP=false
+NEED_WHISPER=false
+NEED_OLLAMA=false
+NEED_PIP=false
+
+# Check for Homebrew on macOS (needed for other installs)
+if [[ "$OSTYPE" == "darwin"* ]] && ! command -v brew &> /dev/null; then
+    NEED_BREW=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Homebrew (package manager for macOS)"
+fi
 
 # Check for Bun
 if ! command -v bun &> /dev/null; then
-    echo ""
+    NEED_BUN=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Bun (JavaScript runtime)"
+fi
+
+# Check for ffmpeg
+if ! command -v ffmpeg &> /dev/null; then
+    NEED_FFMPEG=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} ffmpeg (video processing)"
+fi
+
+# Check for yt-dlp
+if ! command -v yt-dlp &> /dev/null; then
+    NEED_YTDLP=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} yt-dlp (video downloads)"
+fi
+
+# Check for pip (needed for whisper)
+if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
+    NEED_PIP=true
+fi
+
+# Check for whisper
+if ! command -v whisper &> /dev/null; then
+    NEED_WHISPER=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} OpenAI Whisper (audio transcription)"
+fi
+
+# Check for Ollama
+if ! command -v ollama &> /dev/null; then
+    NEED_OLLAMA=true
+    INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Ollama + nomic-embed-text (local embeddings)"
+fi
+
+# Always installing these
+INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Lucid Memory server"
+INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Whisper model (74MB)"
+INSTALL_LIST="${INSTALL_LIST}\n  ${C4}•${NC} Claude Code hooks"
+
+# === Show installation summary ===
+
+echo -e "${BOLD}The following will be installed:${NC}"
+echo -e "$INSTALL_LIST"
+echo ""
+
+AVAILABLE_GB=$((AVAILABLE_SPACE / 1048576))
+echo -e "${DIM}Disk space available: ${AVAILABLE_GB}GB${NC}"
+echo ""
+
+# Ask for confirmation
+if [ "$INTERACTIVE" = true ]; then
+    read -p "Continue with installation? [Y/n]: " CONFIRM
+    CONFIRM=${CONFIRM:-Y}
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "Installation cancelled."
+        exit 0
+    fi
+else
+    echo "Non-interactive mode, proceeding with installation..."
+fi
+
+echo ""
+show_progress  # Step 1: Pre-flight checks
+
+# === Install Dependencies ===
+
+# Install Homebrew if needed (macOS only)
+if [ "$NEED_BREW" = true ]; then
+    echo "Installing Homebrew..."
+    NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+    # Add brew to PATH for this session
+    if [[ -f "/opt/homebrew/bin/brew" ]]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -f "/usr/local/bin/brew" ]]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    fi
+
+    if ! command -v brew &> /dev/null; then
+        fail "Homebrew installation failed" \
+            "Please install manually: https://brew.sh\nThen run this installer again."
+    fi
+    success "Homebrew installed"
+fi
+
+# Install Bun if needed
+if [ "$NEED_BUN" = true ]; then
     echo "Installing Bun..."
     curl -fsSL https://bun.sh/install | bash
     export PATH="$HOME/.bun/bin:$PATH"
 
-    # Verify installation
     if ! command -v bun &> /dev/null; then
         fail "Bun installation failed" \
             "Please install Bun manually: https://bun.sh"
@@ -372,28 +486,80 @@ if ! command -v bun &> /dev/null; then
 fi
 success "Bun $(bun --version)"
 
-# Check for Claude Code
-CLAUDE_SETTINGS_DIR="$HOME/.claude"
-if [ ! -d "$CLAUDE_SETTINGS_DIR" ]; then
-    fail "Claude Code not found" \
-        "Please install Claude Code first: https://claude.ai/download\n\nAfter installing, run this installer again."
-fi
-success "Claude Code found"
-
-# Check existing MCP config
-# Claude Code uses ~/.claude.json for MCP servers (not claude_desktop_config.json which is for Claude Desktop app)
-MCP_CONFIG="$HOME/.claude.json"
-if [ -f "$MCP_CONFIG" ]; then
-    if ! validate_json "$MCP_CONFIG"; then
-        fail "Existing MCP config is malformed" \
-            "The file $MCP_CONFIG contains invalid JSON.\nPlease fix or remove it, then run this installer again."
+# Install ffmpeg if needed
+if [ "$NEED_FFMPEG" = true ]; then
+    echo "Installing ffmpeg..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install ffmpeg
+    else
+        # Linux - try common package managers
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y ffmpeg
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y ffmpeg
+        elif command -v pacman &> /dev/null; then
+            sudo pacman -S --noconfirm ffmpeg
+        else
+            fail "Could not install ffmpeg" \
+                "Please install ffmpeg manually and run this installer again."
+        fi
     fi
-    success "MCP config valid"
+    success "ffmpeg installed"
+else
+    success "ffmpeg already installed"
 fi
 
-echo ""
-success "All pre-flight checks passed!"
-show_progress  # Step 1: Pre-flight checks
+# Install yt-dlp if needed
+if [ "$NEED_YTDLP" = true ]; then
+    echo "Installing yt-dlp..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        brew install yt-dlp
+    else
+        # Linux - try pip first, then package managers
+        if command -v pip3 &> /dev/null; then
+            pip3 install yt-dlp
+        elif command -v pip &> /dev/null; then
+            pip install yt-dlp
+        elif command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y yt-dlp
+        elif command -v dnf &> /dev/null; then
+            sudo dnf install -y yt-dlp
+        else
+            fail "Could not install yt-dlp" \
+                "Please install yt-dlp manually: pip install yt-dlp"
+        fi
+    fi
+    success "yt-dlp installed"
+else
+    success "yt-dlp already installed"
+fi
+
+# Install whisper if needed
+if [ "$NEED_WHISPER" = true ]; then
+    echo "Installing OpenAI Whisper..."
+
+    # Check for pip
+    if [ "$NEED_PIP" = true ]; then
+        fail "pip is not installed" \
+            "Please install Python and pip first:\n  macOS: brew install python\n  Ubuntu/Debian: sudo apt install python3-pip\n  Fedora: sudo dnf install python3-pip"
+    fi
+
+    if command -v pip3 &> /dev/null; then
+        pip3 install openai-whisper
+    else
+        pip install openai-whisper
+    fi
+
+    if ! command -v whisper &> /dev/null; then
+        fail "Whisper installation failed" \
+            "Please install manually: pip install openai-whisper"
+    fi
+    success "Whisper installed"
+else
+    success "Whisper already installed"
+fi
+
+show_progress  # Step 2: Install dependencies
 
 # === Create Lucid Directory ===
 
@@ -407,7 +573,7 @@ mkdir -p "$LUCID_DIR"
 mkdir -p "$LUCID_BIN"
 
 success "Created ~/.lucid"
-show_progress  # Step 2: Create directory
+show_progress  # Step 3: Create directory
 
 # === Install Lucid Server ===
 
@@ -577,7 +743,7 @@ chmod +x "$LUCID_BIN/lucid-server"
 mkdir -p "$LUCID_DIR/logs"
 
 success "Lucid Memory installed"
-show_progress  # Step 3: Install server
+show_progress  # Step 4: Install server
 
 # === Embedding Provider ===
 
@@ -613,50 +779,11 @@ case $EMBED_CHOICE in
         echo ""
         echo "Setting up Ollama..."
 
-        # Install Ollama if not present
-        if ! command -v ollama &> /dev/null; then
+        # Install Ollama if not present (Homebrew already installed if needed)
+        if [ "$NEED_OLLAMA" = true ]; then
             echo "Installing Ollama..."
 
             if [[ "$OSTYPE" == "darwin"* ]]; then
-                # macOS
-                if ! command -v brew &> /dev/null; then
-                    echo ""
-                    echo "Homebrew is required to install Ollama on macOS."
-
-                    if [ "$INTERACTIVE" = true ]; then
-                        read -p "Install Homebrew now? [Y/n]: " INSTALL_BREW
-                        INSTALL_BREW=${INSTALL_BREW:-Y}
-                    else
-                        echo "Non-interactive mode, auto-installing Homebrew..."
-                        INSTALL_BREW="Y"
-                    fi
-
-                    if [[ "$INSTALL_BREW" =~ ^[Yy]$ ]]; then
-                        echo "Installing Homebrew..."
-                        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-                        # Add brew to PATH for this session
-                        if [[ -f "/opt/homebrew/bin/brew" ]]; then
-                            eval "$(/opt/homebrew/bin/brew shellenv)"
-                        elif [[ -f "/usr/local/bin/brew" ]]; then
-                            eval "$(/usr/local/bin/brew shellenv)"
-                        fi
-
-                        if ! command -v brew &> /dev/null; then
-                            fail "Homebrew installation failed" \
-                                "Please install manually: https://brew.sh\nThen run this installer again."
-                        fi
-                        success "Homebrew installed"
-                    else
-                        echo ""
-                        echo "Please install Ollama manually:"
-                        echo "  Download from: https://ollama.com/download"
-                        echo ""
-                        fail "Ollama installation requires Homebrew or manual install"
-                    fi
-                fi
-
-                echo "Installing Ollama via Homebrew..."
                 brew install ollama
             else
                 # Linux
@@ -682,7 +809,7 @@ case $EMBED_CHOICE in
         success "Embedding model ready"
         ;;
 esac
-show_progress  # Step 4: Embedding provider
+show_progress  # Step 5: Embedding provider
 
 # === Download Whisper Model for Transcription ===
 
@@ -731,7 +858,7 @@ EOF
 fi
 
 success "MCP server configured"
-show_progress  # Step 5: Configure Claude Code
+show_progress  # Step 6: Configure Claude Code
 
 # === Install Hooks ===
 
@@ -872,7 +999,7 @@ if [ -n "$SHELL_CONFIG" ]; then
         success "Added to PATH"
     fi
 fi
-show_progress  # Step 6: Install hooks & PATH
+show_progress  # Step 7: Install hooks & PATH
 
 # === Cleanup ===
 
@@ -881,7 +1008,7 @@ rm -rf "$TEMP_DIR"
 # === Restart Claude Code ===
 
 restart_claude_code
-show_progress  # Step 7: Restart Claude Code
+show_progress  # Step 8: Restart Claude Code
 
 # === Done! ===
 

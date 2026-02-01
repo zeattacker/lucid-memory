@@ -21,8 +21,8 @@ $PSStyle.OutputRendering = 'Ansi' 2>$null
 # Minimum disk space required (in bytes) - 5GB
 $MIN_DISK_SPACE = 5GB
 
-# Progress tracking
-$script:TotalSteps = 7
+# Progress tracking (adjusted dynamically based on what needs installing)
+$script:TotalSteps = 8
 $script:CurrentStep = 0
 
 # Colors for output
@@ -80,14 +80,19 @@ Show-Banner
 
 # === Pre-flight Checks ===
 
-Write-Host "Running pre-flight checks..."
+Write-Host "Checking system requirements..."
 Write-Host ""
 
-# Check for git
+# Check for git (required, cannot auto-install)
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Fail "Git is not installed" "Please install Git first: https://git-scm.com/download/win"
 }
-Write-Success "Git installed"
+
+# Check for Claude Code (required, cannot auto-install)
+$ClaudeSettingsDir = "$env:USERPROFILE\.claude"
+if (-not (Test-Path $ClaudeSettingsDir)) {
+    Write-Fail "Claude Code not found" "Please install Claude Code first: https://claude.ai/download`n`nAfter installing, run this installer again."
+}
 
 # Check disk space
 $Drive = (Get-Item $env:USERPROFILE).PSDrive.Name
@@ -97,11 +102,70 @@ if ($FreeSpace -lt $MIN_DISK_SPACE) {
     Write-Fail "Insufficient disk space" "Lucid Memory requires at least 5GB of free space.`nAvailable: ${FreeGB}GB"
 }
 $FreeGB = [math]::Round($FreeSpace / 1GB, 1)
-Write-Success "Disk space OK (${FreeGB}GB available)"
 
-# Check for Bun
-if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+# Check existing MCP config
+$McpConfig = "$env:USERPROFILE\.claude.json"
+if (Test-Path $McpConfig) {
+    try {
+        $null = Get-Content $McpConfig | ConvertFrom-Json
+    } catch {
+        Write-Fail "Existing MCP config is malformed" "The file $McpConfig contains invalid JSON.`nPlease fix or remove it, then run this installer again."
+    }
+}
+
+# === Detect what needs to be installed ===
+
+$e = [char]27
+$C4 = "$e[38;5;117m"
+$NC = "$e[0m"
+$DIM = "$e[2m"
+$BOLD = "$e[1m"
+
+$InstallList = @()
+$NeedBun = -not (Get-Command bun -ErrorAction SilentlyContinue)
+$NeedFfmpeg = -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)
+$NeedYtdlp = -not (Get-Command yt-dlp -ErrorAction SilentlyContinue)
+$NeedWhisper = -not (Get-Command whisper -ErrorAction SilentlyContinue)
+$NeedOllama = -not (Get-Command ollama -ErrorAction SilentlyContinue)
+$NeedPip = -not ((Get-Command pip -ErrorAction SilentlyContinue) -or (Get-Command pip3 -ErrorAction SilentlyContinue))
+
+if ($NeedBun) { $InstallList += "  ${C4}•${NC} Bun (JavaScript runtime)" }
+if ($NeedFfmpeg) { $InstallList += "  ${C4}•${NC} ffmpeg (video processing)" }
+if ($NeedYtdlp) { $InstallList += "  ${C4}•${NC} yt-dlp (video downloads)" }
+if ($NeedWhisper) { $InstallList += "  ${C4}•${NC} OpenAI Whisper (audio transcription)" }
+if ($NeedOllama) { $InstallList += "  ${C4}•${NC} Ollama + nomic-embed-text (local embeddings)" }
+
+# Always installing these
+$InstallList += "  ${C4}•${NC} Lucid Memory server"
+$InstallList += "  ${C4}•${NC} Whisper model (74MB)"
+$InstallList += "  ${C4}•${NC} Claude Code hooks"
+
+# === Show installation summary ===
+
+Write-Host "${BOLD}The following will be installed:${NC}"
+foreach ($item in $InstallList) {
+    Write-Host $item
+}
+Write-Host ""
+Write-Host "${DIM}Disk space available: ${FreeGB}GB${NC}"
+Write-Host ""
+
+# Ask for confirmation
+$Confirm = Read-Host "Continue with installation? [Y/n]"
+if (-not $Confirm) { $Confirm = "Y" }
+if ($Confirm -notmatch "^[Yy]") {
     Write-Host ""
+    Write-Host "Installation cancelled."
+    exit 0
+}
+
+Write-Host ""
+Show-Progress  # Step 1: Pre-flight checks
+
+# === Install Dependencies ===
+
+# Install Bun if needed
+if ($NeedBun) {
     Write-Host "Installing Bun..."
     try {
         irm bun.sh/install.ps1 | iex
@@ -113,27 +177,61 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 $BunVersion = bun --version
 Write-Success "Bun $BunVersion"
 
-# Check for Claude Code
-$ClaudeSettingsDir = "$env:USERPROFILE\.claude"
-if (-not (Test-Path $ClaudeSettingsDir)) {
-    Write-Fail "Claude Code not found" "Please install Claude Code first: https://claude.ai/download`n`nAfter installing, run this installer again."
-}
-Write-Success "Claude Code found"
-
-# Check existing MCP config (Claude Code uses ~/.claude.json, not claude_desktop_config.json)
-$McpConfig = "$env:USERPROFILE\.claude.json"
-if (Test-Path $McpConfig) {
+# Install ffmpeg if needed
+if ($NeedFfmpeg) {
+    Write-Host "Installing ffmpeg..."
     try {
-        $null = Get-Content $McpConfig | ConvertFrom-Json
-        Write-Success "MCP config valid"
+        winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+        # Refresh PATH
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        Write-Success "ffmpeg installed"
     } catch {
-        Write-Fail "Existing MCP config is malformed" "The file $McpConfig contains invalid JSON.`nPlease fix or remove it, then run this installer again."
+        Write-Fail "Could not install ffmpeg" "Please install manually: winget install ffmpeg"
     }
+} else {
+    Write-Success "ffmpeg already installed"
 }
 
-Write-Host ""
-Write-Success "All pre-flight checks passed!"
-Show-Progress  # Step 1: Pre-flight checks
+# Install yt-dlp if needed
+if ($NeedYtdlp) {
+    Write-Host "Installing yt-dlp..."
+    try {
+        if (Get-Command pip -ErrorAction SilentlyContinue) {
+            pip install yt-dlp
+        } elseif (Get-Command pip3 -ErrorAction SilentlyContinue) {
+            pip3 install yt-dlp
+        } else {
+            winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements
+        }
+        Write-Success "yt-dlp installed"
+    } catch {
+        Write-Fail "Could not install yt-dlp" "Please install manually: pip install yt-dlp"
+    }
+} else {
+    Write-Success "yt-dlp already installed"
+}
+
+# Install whisper if needed
+if ($NeedWhisper) {
+    Write-Host "Installing OpenAI Whisper..."
+    if ($NeedPip) {
+        Write-Fail "pip is not installed" "Please install Python first: https://www.python.org/downloads/`nMake sure to check 'Add Python to PATH' during installation."
+    }
+    try {
+        if (Get-Command pip3 -ErrorAction SilentlyContinue) {
+            pip3 install openai-whisper
+        } else {
+            pip install openai-whisper
+        }
+        Write-Success "Whisper installed"
+    } catch {
+        Write-Fail "Whisper installation failed" "Please install manually: pip install openai-whisper"
+    }
+} else {
+    Write-Success "Whisper already installed"
+}
+
+Show-Progress  # Step 2: Install dependencies
 
 # === Create Lucid Directory ===
 
@@ -147,7 +245,7 @@ New-Item -ItemType Directory -Force -Path $LucidDir | Out-Null
 New-Item -ItemType Directory -Force -Path $LucidBin | Out-Null
 
 Write-Success "Created ~/.lucid"
-Show-Progress  # Step 2: Create directory
+Show-Progress  # Step 3: Create directory
 
 # === Install Lucid Server ===
 
@@ -200,7 +298,7 @@ powershell -ExecutionPolicy Bypass -File "%USERPROFILE%\.lucid\server\bin\lucid-
 New-Item -ItemType Directory -Force -Path "$LucidDir\logs" | Out-Null
 
 Write-Success "Lucid Memory installed"
-Show-Progress  # Step 3: Install server
+Show-Progress  # Step 4: Install server
 
 # === Embedding Provider ===
 
@@ -226,7 +324,8 @@ switch ($EmbedChoice) {
         Write-Host ""
         Write-Host "Setting up Ollama..."
 
-        if (-not (Get-Command ollama -ErrorAction SilentlyContinue)) {
+        # Install Ollama if needed (detected earlier)
+        if ($NeedOllama) {
             Write-Host "Installing Ollama..."
             try {
                 # Download and run Ollama installer
@@ -298,7 +397,7 @@ switch ($EmbedChoice) {
         Write-Success "Embedding model ready"
     }
 }
-Show-Progress  # Step 4: Embedding provider
+Show-Progress  # Step 5: Embedding provider
 
 # === Download Whisper Model for Transcription ===
 
@@ -357,7 +456,7 @@ if (Test-Path $McpConfig) {
 }
 
 Write-Success "MCP server configured"
-Show-Progress  # Step 5: Configure Claude Code
+Show-Progress  # Step 6: Configure Claude Code
 
 # === Install Hooks ===
 
@@ -433,7 +532,7 @@ if ($CurrentPath -notlike "*$LucidBin*") {
     $env:PATH = "$LucidBin;$env:PATH"
     Write-Success "Added to PATH"
 }
-Show-Progress  # Step 6: Install hooks & PATH
+Show-Progress  # Step 7: Install hooks & PATH
 
 # === Cleanup ===
 
@@ -456,7 +555,7 @@ if ($ClaudeProcess) {
         Start-Process -FilePath $ClaudePath
     }
 }
-Show-Progress  # Step 7: Restart Claude Code
+Show-Progress  # Step 8: Restart Claude Code
 
 # === Done! ===
 

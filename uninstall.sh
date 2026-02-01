@@ -68,11 +68,40 @@ if [ ! -d "$LUCID_DIR" ]; then
     exit 0
 fi
 
+# === Show removal summary ===
+
+REMOVE_LIST=""
+REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} ~/.lucid directory (server, models, database)"
+
+if [ -f "$MCP_CONFIG" ] && grep -q "lucid-memory" "$MCP_CONFIG" 2>/dev/null; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} MCP server config from ~/.claude.json"
+fi
+
+CLAUDE_SETTINGS="$CLAUDE_SETTINGS_DIR/settings.json"
+if [ -f "$CLAUDE_SETTINGS" ] && grep -q "UserPromptSubmit" "$CLAUDE_SETTINGS" 2>/dev/null; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} Hook config from ~/.claude/settings.json"
+fi
+
+# Check for PATH entry
+if grep -q "/.lucid/bin" "$HOME/.zshrc" 2>/dev/null || \
+   grep -q "/.lucid/bin" "$HOME/.bashrc" 2>/dev/null || \
+   grep -q "/.lucid/bin" "$HOME/.bash_profile" 2>/dev/null; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} PATH entry from shell config"
+fi
+
+# Check for LaunchAgent
+PLIST_FILE="$HOME/Library/LaunchAgents/com.lucid.ollama.plist"
+if [ -f "$PLIST_FILE" ]; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} Ollama LaunchAgent (auto-start)"
+fi
+
+echo -e "${BOLD}The following will be removed:${NC}"
+echo -e "$REMOVE_LIST"
+echo ""
+
 # Confirm uninstall
 if [ "$INTERACTIVE" = true ]; then
-    echo -e "  This will remove Lucid Memory from your system."
-    echo ""
-    read -p "  Continue? [y/N]: " CONFIRM
+    read -p "  Continue with uninstall? [y/N]: " CONFIRM
     if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
         echo ""
         echo -e "  ${DIM}Uninstall cancelled.${NC}"
@@ -231,6 +260,12 @@ echo ""
 echo -e "        ${GREEN}✓${NC} ${BOLD}Uninstalled Successfully${NC}"
 echo ""
 echo -e "  ${DIM}Thank you for trying Lucid Memory!${NC}"
+echo ""
+echo -e "  ${DIM}Note: The following dependencies may have been installed${NC}"
+echo -e "  ${DIM}and can be removed manually if no longer needed:${NC}"
+echo ""
+echo -e "  ${DIM}  macOS:   brew uninstall ffmpeg yt-dlp ollama${NC}"
+echo -e "  ${DIM}  pip:     pip uninstall openai-whisper${NC}"
 echo ""
 echo -e "  ${DIM}To reinstall:${NC}"
 echo -e "  ${C4}curl -fsSL lucidmemory.dev/install | bash${NC}"

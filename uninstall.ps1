@@ -61,10 +61,41 @@ if (-not (Test-Path $LucidDir)) {
     exit 0
 }
 
-# Confirm uninstall
-Write-Host "  This will remove Lucid Memory from your system."
+# === Show removal summary ===
+
+$RemoveList = @()
+$RemoveList += "  ${C4}•${NC} ~/.lucid directory (server, models, database)"
+
+if ((Test-Path $McpConfig) -and (Select-String -Path $McpConfig -Pattern "lucid-memory" -Quiet)) {
+    $RemoveList += "  ${C4}•${NC} MCP server config from ~/.claude.json"
+}
+
+$ClaudeSettings = "$ClaudeSettingsDir\settings.json"
+if ((Test-Path $ClaudeSettings) -and (Select-String -Path $ClaudeSettings -Pattern "UserPromptSubmit" -Quiet)) {
+    $RemoveList += "  ${C4}•${NC} Hook config from ~/.claude/settings.json"
+}
+
+# Check for PATH entry
+$LucidBin = "$LucidDir\bin"
+$CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($CurrentPath -like "*$LucidBin*") {
+    $RemoveList += "  ${C4}•${NC} PATH entry"
+}
+
+# Check for scheduled task
+$TaskName = "LucidOllamaKeepAlive"
+if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    $RemoveList += "  ${C4}•${NC} Ollama scheduled task (auto-start)"
+}
+
+Write-Host "${BOLD}The following will be removed:${NC}"
+foreach ($item in $RemoveList) {
+    Write-Host $item
+}
 Write-Host ""
-$Confirm = Read-Host "  Continue? [y/N]"
+
+# Confirm uninstall
+$Confirm = Read-Host "  Continue with uninstall? [y/N]"
 if ($Confirm -notmatch "^[Yy]$") {
     Write-Host ""
     Write-Host "  ${DIM}Uninstall cancelled.${NC}"
@@ -167,6 +198,12 @@ Write-Host ""
 Write-Host "        ${GREEN}✓${NC} ${BOLD}Uninstalled Successfully${NC}"
 Write-Host ""
 Write-Host "  ${DIM}Thank you for trying Lucid Memory!${NC}"
+Write-Host ""
+Write-Host "  ${DIM}Note: The following dependencies may have been installed${NC}"
+Write-Host "  ${DIM}and can be removed manually if no longer needed:${NC}"
+Write-Host ""
+Write-Host "  ${DIM}  winget uninstall ffmpeg yt-dlp Ollama${NC}"
+Write-Host "  ${DIM}  pip uninstall openai-whisper${NC}"
 Write-Host ""
 Write-Host "  ${DIM}To reinstall:${NC}"
 Write-Host "  ${C4}irm lucidmemory.dev/install.ps1 | iex${NC}"
