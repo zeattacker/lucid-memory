@@ -15,7 +15,7 @@ curl -fsSL lucidmemory.dev/install | bash
 
 **New in 0.3.0:** <a href="#visual-memory">Visual Memory</a> — Claude now sees and remembers images and videos you share, recalling them when relevant.
 
-**Coming in 0.4.0:** <a href="#visual-memory">Procedural Memory</a> — Upgrade declarative memory to procedural memory. This enables Claude to learn your work flow, develop instincts, automatically suggest workflows based on context, recognize deviations, and create muscle memory for actions. No more searching or even directing Claude to a common file location - it just knows. 
+**Coming in 0.4.0:** Procedural Memory — Upgrade declarative memory to procedural memory. This enables Claude to learn your work flow, develop instincts, automatically suggest workflows based on context, recognize deviations, and create muscle memory for actions. No more searching or even directing Claude to a common file location - it just knows. 
 
 
 ---
