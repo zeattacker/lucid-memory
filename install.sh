@@ -380,6 +380,20 @@ NEED_WHISPER=false
 NEED_OLLAMA=false
 NEED_PIP=false
 
+# Add Python user bin to PATH for detection (pip installs go here)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: ~/Library/Python/3.X/bin
+    for pyver in 3.13 3.12 3.11 3.10 3.9 3.8; do
+        if [ -d "$HOME/Library/Python/$pyver/bin" ]; then
+            export PATH="$HOME/Library/Python/$pyver/bin:$PATH"
+            break
+        fi
+    done
+else
+    # Linux: ~/.local/bin
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 # Check for Homebrew on macOS (needed for other installs)
 if [[ "$OSTYPE" == "darwin"* ]] && ! command -v brew &> /dev/null; then
     NEED_BREW=true
@@ -553,6 +567,20 @@ if [ "$NEED_YTDLP" = true ]; then
         fi
     fi
 
+    # Add Python user bin to PATH (different locations on macOS vs Linux)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: ~/Library/Python/3.X/bin
+        for pyver in 3.13 3.12 3.11 3.10 3.9 3.8; do
+            if [ -d "$HOME/Library/Python/$pyver/bin" ]; then
+                export PATH="$HOME/Library/Python/$pyver/bin:$PATH"
+                break
+            fi
+        done
+    else
+        # Linux: ~/.local/bin
+        export PATH="$HOME/.local/bin:$PATH"
+    fi
+
     if [ "$YTDLP_INSTALLED" = true ] && command -v yt-dlp &> /dev/null; then
         success "yt-dlp installed"
     else
@@ -577,13 +605,25 @@ if [ "$NEED_WHISPER" = true ]; then
     if command -v pip3 &> /dev/null; then
         if pip3 install --user openai-whisper; then
             WHISPER_INSTALLED=true
-            export PATH="$HOME/.local/bin:$PATH"
         fi
     elif command -v pip &> /dev/null; then
         if pip install --user openai-whisper; then
             WHISPER_INSTALLED=true
-            export PATH="$HOME/.local/bin:$PATH"
         fi
+    fi
+
+    # Add Python user bin to PATH (different locations on macOS vs Linux)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: ~/Library/Python/3.X/bin
+        for pyver in 3.13 3.12 3.11 3.10 3.9 3.8; do
+            if [ -d "$HOME/Library/Python/$pyver/bin" ]; then
+                export PATH="$HOME/Library/Python/$pyver/bin:$PATH"
+                break
+            fi
+        done
+    else
+        # Linux: ~/.local/bin
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 
     if [ "$WHISPER_INSTALLED" = true ] && command -v whisper &> /dev/null; then
