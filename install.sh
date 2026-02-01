@@ -781,8 +781,8 @@ fi
 
 cd "$LUCID_DIR/server"
 
-# Update package.json to point to the correct native package location
-if [ -f "package.json" ]; then
+# Update package.json to point to the correct native package location (only if native exists)
+if [ -f "package.json" ] && [ -d "$LUCID_DIR/native" ]; then
     if command -v jq &> /dev/null; then
         jq '.dependencies["@lucid-memory/native"] = "file:../native"' package.json > package.json.tmp && mv package.json.tmp package.json
     elif command -v python3 &> /dev/null; then
@@ -797,12 +797,32 @@ with open('package.json', 'w') as f:
     json.dump(pkg, f, indent=2)
 PYEOF
     fi
+elif [ -f "package.json" ]; then
+    # Native package doesn't exist, remove the dependency to avoid errors
+    if command -v jq &> /dev/null; then
+        jq 'del(.dependencies["@lucid-memory/native"])' package.json > package.json.tmp && mv package.json.tmp package.json
+    elif command -v python3 &> /dev/null; then
+        python3 << 'PYEOF'
+import json
+with open('package.json', 'r') as f:
+    pkg = json.load(f)
+if 'dependencies' in pkg and '@lucid-memory/native' in pkg['dependencies']:
+    del pkg['dependencies']['@lucid-memory/native']
+with open('package.json', 'w') as f:
+    json.dump(pkg, f, indent=2)
+PYEOF
+    fi
 fi
 
 echo "Installing dependencies..."
-if ! bun install --production 2>/dev/null; then
-    fail "Failed to install dependencies" \
-        "Bun package installation failed. Check your internet connection."
+# Show output so we can see errors - bun install can fail for various reasons
+if ! bun install --production; then
+    echo ""
+    warn "bun install failed, trying without --production flag..."
+    if ! bun install; then
+        fail "Failed to install dependencies" \
+            "Bun package installation failed.\n\nTry running manually:\n  cd ~/.lucid/server && bun install"
+    fi
 fi
 
 # Create CLI wrapper
