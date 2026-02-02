@@ -261,7 +261,7 @@ pub struct JsLocationIntuition {
 	/// Last access timestamp (ms)
 	pub last_accessed_ms: f64,
 	/// Whether pinned (immune to decay)
-	pub pinned: bool,
+	pub is_pinned: bool,
 }
 
 /// Association between two locations.
@@ -359,12 +359,12 @@ pub fn location_batch_decay(
 #[napi]
 pub fn location_association_strength(
 	current_count: u32,
-	same_task: bool,
-	same_activity: bool,
+	is_same_task: bool,
+	is_same_activity: bool,
 	config: Option<JsLocationConfig>,
 ) -> f64 {
 	let cfg = js_config_to_core(config);
-	let multiplier = lucid_core::location::association_multiplier(same_task, same_activity, &cfg);
+	let multiplier = lucid_core::location::association_multiplier(is_same_task, is_same_activity, &cfg);
 	core_association_strength(current_count, multiplier, &cfg)
 }
 
@@ -449,7 +449,7 @@ pub struct JsVisualMemory {
 	/// Tags
 	pub tags: Vec<String>,
 	/// Whether pinned
-	pub pinned: bool,
+	pub is_pinned: bool,
 }
 
 /// Configuration for visual memory operations.
@@ -900,7 +900,7 @@ fn js_visual_memory_to_core(js: JsVisualMemory) -> VisualMemory {
 		frame_number: js.frame_number,
 		objects: js.objects,
 		tags: js.tags,
-		pinned: js.pinned,
+		is_pinned: js.is_pinned,
 	}
 }
 
@@ -954,7 +954,7 @@ const fn js_location_to_core(js: JsLocationIntuition) -> LocationIntuition {
 		access_count: js.access_count,
 		searches_saved: js.searches_saved,
 		last_accessed_ms: js.last_accessed_ms,
-		pinned: js.pinned,
+		is_pinned: js.is_pinned,
 	}
 }
 
@@ -1096,7 +1096,7 @@ mod tests {
 				access_count: 20,
 				searches_saved: 5,
 				last_accessed_ms: old_time,
-				pinned: false,
+				is_pinned: false,
 			},
 			JsLocationIntuition {
 				id: 1,
@@ -1104,7 +1104,7 @@ mod tests {
 				access_count: 10,
 				searches_saved: 2,
 				last_accessed_ms: old_time,
-				pinned: true, // Pinned - won't decay
+				is_pinned: true, // Pinned - won't decay
 			},
 		];
 

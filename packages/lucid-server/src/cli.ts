@@ -21,7 +21,7 @@ const args = process.argv.slice(2)
 const command = args[0]
 
 // Top-level regex for version tag stripping
-const VERSION_TAG_REGEX = /^v/
+const versionTagRegex = /^v/
 
 async function main() {
 	const retrieval = new LucidRetrieval()
@@ -392,7 +392,7 @@ async function main() {
 				} else {
 					const release = await response.json()
 					const latestVersion =
-						release.tag_name?.replace(VERSION_TAG_REGEX, "") || "unknown"
+						release.tag_name?.replace(versionTagRegex, "") || "unknown"
 					console.log(`Latest version:  ${latestVersion}`)
 
 					if (currentVersion === latestVersion) {

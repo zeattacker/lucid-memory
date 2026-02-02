@@ -21,11 +21,11 @@ const logDir = join(homedir(), ".lucid", "logs")
 const logFile = join(logDir, "embeddings.log")
 
 // Log rotation settings
-const MAX_LOG_SIZE = 10 * 1024 * 1024 // 10MB
-const MAX_OLD_LOGS = 5
+const maxLogSize = 10 * 1024 * 1024 // 10MB
+const maxOldLogs = 5
 
 /**
- * Rotate log file if it exceeds MAX_LOG_SIZE.
+ * Rotate log file if it exceeds maxLogSize.
  * Creates sequential backups: embeddings.log.1, embeddings.log.2, etc.
  */
 function rotateLogIfNeeded(): void {
@@ -33,17 +33,17 @@ function rotateLogIfNeeded(): void {
 		if (!existsSync(logFile)) return
 
 		const stats = statSync(logFile)
-		if (stats.size < MAX_LOG_SIZE) return
+		if (stats.size < maxLogSize) return
 
 		// Rotate existing old logs (shift numbers up)
 		// Delete oldest if at max
-		const oldestLog = `${logFile}.${MAX_OLD_LOGS}`
+		const oldestLog = `${logFile}.${maxOldLogs}`
 		if (existsSync(oldestLog)) {
 			unlinkSync(oldestLog)
 		}
 
 		// Shift .4 -> .5, .3 -> .4, .2 -> .3, .1 -> .2
-		for (let i = MAX_OLD_LOGS - 1; i >= 1; i--) {
+		for (let i = maxOldLogs - 1; i >= 1; i--) {
 			const older = `${logFile}.${i}`
 			const newer = `${logFile}.${i + 1}`
 			if (existsSync(older)) {

@@ -169,7 +169,7 @@ pub struct VisualMemory {
 	pub tags: Vec<String>,
 
 	/// Whether this memory is pinned (protected from decay/pruning)
-	pub pinned: bool,
+	pub is_pinned: bool,
 }
 
 impl VisualMemory {
@@ -704,7 +704,7 @@ pub fn compute_pruning_candidates(
 		.enumerate()
 		.filter_map(|(i, mem)| {
 			// Never prune pinned memories
-			if mem.pinned {
+			if mem.is_pinned {
 				return None;
 			}
 
@@ -1165,7 +1165,7 @@ mod tests {
 				frame_number: None,
 				objects: vec![],
 				tags: vec![],
-				pinned: false,
+				is_pinned: false,
 			},
 			VisualMemory {
 				id: 1,
@@ -1183,7 +1183,7 @@ mod tests {
 				frame_number: None,
 				objects: vec![],
 				tags: vec![],
-				pinned: false,
+				is_pinned: false,
 			},
 		];
 

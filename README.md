@@ -119,6 +119,8 @@ Lucid implements how humans actually remember:
 | Time | Flat | Recent/frequent = stronger |
 | Associations | None | Memories activate each other |
 
+**Want the full picture?** See [How It Works](HOW_IT_WORKS.md) for a deep dive into the cognitive architecture, retrieval algorithms, and neuroscience behind Lucid Memory.
+
 <h3 id="visual-memory">Visual Memory</h3>
 
 **New in 0.3:** Claude now sees and remembers images and videos you share.

@@ -46,14 +46,14 @@ try {
 }
 
 // Type aliases for native module types
-type JsAssociation = {
+interface JsAssociation {
 	source: number
 	target: number
 	forwardStrength: number
 	backwardStrength: number
 }
 
-type JsRetrievalConfig = {
+interface JsRetrievalConfig {
 	decayRate?: number
 	activationThreshold?: number
 	noiseParameter?: number

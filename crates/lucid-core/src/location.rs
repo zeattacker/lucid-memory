@@ -88,7 +88,7 @@ pub struct LocationIntuition {
 	/// Timestamp of last access (ms since epoch)
 	pub last_accessed_ms: f64,
 	/// Whether this location is pinned (immune to decay)
-	pub pinned: bool,
+	pub is_pinned: bool,
 }
 
 /// Association between two locations (co-access network).
@@ -239,11 +239,11 @@ pub fn compute_decayed_familiarity(
 	current_familiarity: f64,
 	last_accessed_ms: f64,
 	current_time_ms: f64,
-	pinned: bool,
+	is_pinned: bool,
 	config: &LocationConfig,
 ) -> f64 {
 	// Pinned locations never decay
-	if pinned {
+	if is_pinned {
 		return current_familiarity;
 	}
 
@@ -297,7 +297,7 @@ pub fn compute_batch_decay(
 				loc.familiarity,
 				loc.last_accessed_ms,
 				current_time_ms,
-				loc.pinned,
+				loc.is_pinned,
 				config,
 			)
 		})
@@ -450,11 +450,11 @@ pub fn compute_association_strength(
 #[must_use]
 #[allow(clippy::missing_const_for_fn)] // Can't be const due to config parameter
 pub fn association_multiplier(
-	same_task: bool,
-	same_activity: bool,
+	is_same_task: bool,
+	is_same_activity: bool,
 	config: &LocationConfig,
 ) -> f64 {
-	match (same_task, same_activity) {
+	match (is_same_task, is_same_activity) {
 		(true, true) => config.task_same_activity_multiplier,
 		(true, false) => config.task_diff_activity_multiplier,
 		(false, true) => config.time_same_activity_multiplier,
@@ -730,7 +730,7 @@ mod tests {
 				access_count: 20,
 				searches_saved: 5,
 				last_accessed_ms: old_time,
-				pinned: false,
+				is_pinned: false,
 			},
 			LocationIntuition {
 				id: 1,
@@ -738,7 +738,7 @@ mod tests {
 				access_count: 10,
 				searches_saved: 2,
 				last_accessed_ms: old_time,
-				pinned: true, // Pinned - won't decay
+				is_pinned: true, // Pinned - won't decay
 			},
 		];
 
