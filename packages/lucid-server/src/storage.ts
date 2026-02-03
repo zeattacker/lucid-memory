@@ -2489,6 +2489,38 @@ export class LucidStorage {
 	}
 
 	/**
+	 * Get memory IDs that were accessed during a session's time window.
+	 * Used for applying session co-access boost in retrieval.
+	 *
+	 * @param sessionId - Session ID to query
+	 * @returns Set of memory IDs accessed during the session
+	 */
+	getMemoryIdsInSession(sessionId: string): Set<string> {
+		const session = this.db
+			.prepare(`SELECT started_at, last_active_at FROM sessions WHERE id = ?`)
+			.get(sessionId) as
+			| { started_at: number; last_active_at: number }
+			| undefined
+
+		if (!session) {
+			return new Set()
+		}
+
+		const rows = this.db
+			.prepare(
+				`
+				SELECT DISTINCT memory_id FROM access_history
+				WHERE accessed_at >= ? AND accessed_at <= ?
+			`
+			)
+			.all(session.started_at, session.last_active_at) as {
+			memory_id: string
+		}[]
+
+		return new Set(rows.map((r) => r.memory_id))
+	}
+
+	/**
 	 * Prune expired sessions older than the specified time.
 	 * QW-4: Prevents DB bloat from accumulated expired sessions.
 	 *

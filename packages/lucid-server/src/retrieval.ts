@@ -148,6 +148,7 @@ export class LucidRetrieval {
 		new Map()
 	private readonly sessionCacheTtlMs = 60000 // Re-check session every minute
 	private sessionCacheLastPruneAt = 0 // LOW-6: Track last prune to avoid O(n) on every call
+	private readonly sessionCoAccessBoost = 1.5 // Memories accessed in same session get 1.5x boost
 
 	// MED-5: Association cache to avoid repeated full table scans
 	private associationCache: { data: Association[]; cachedAt: number } | null =
@@ -575,9 +576,10 @@ export class LucidRetrieval {
 			return []
 		}
 
-		// Use native Rust retrieval if available
+		// Get candidates from native or TypeScript implementation
+		let candidates: RetrievalCandidate[]
 		if (shouldUseNative && nativeModule) {
-			return this.retrieveNative(
+			candidates = this.retrieveNative(
 				probeVector,
 				memoriesWithEmbeddings,
 				memoryEmbeddings,
@@ -588,21 +590,50 @@ export class LucidRetrieval {
 				associations,
 				memoryIdToIndex,
 				config,
-				limit
+				limit * 2 // Fetch extra to allow for re-ranking after session boost
+			)
+		} else {
+			candidates = this.retrieveTypeScript(
+				probeVector,
+				memoriesWithEmbeddings,
+				memoryEmbeddings,
+				memoryAccessHistories,
+				associations,
+				embeddingsMap,
+				config,
+				limit * 2 // Fetch extra to allow for re-ranking after session boost
 			)
 		}
 
-		// Fall back to TypeScript implementation
-		return this.retrieveTypeScript(
-			probeVector,
-			memoriesWithEmbeddings,
-			memoryEmbeddings,
-			memoryAccessHistories,
-			associations,
-			embeddingsMap,
-			config,
-			limit
-		)
+		// Phase 4: Apply session co-access boost
+		// Memories accessed in the same session get 1.5x score boost
+		const sessionId = this.getCurrentSession(projectId)
+		if (sessionId) {
+			const sessionMemoryIds = this.storage.getMemoryIdsInSession(sessionId)
+			for (const candidate of candidates) {
+				if (sessionMemoryIds.has(candidate.memory.id)) {
+					candidate.score *= this.sessionCoAccessBoost
+				}
+			}
+			// Re-sort after applying boost
+			candidates.sort((a, b) => b.score - a.score)
+		}
+
+		// Final slice and record access for returned memories only
+		const finalCandidates = candidates.slice(0, limit)
+
+		// Record access and update Working Memory for returned memories
+		const accessNow = Date.now()
+		for (const candidate of finalCandidates) {
+			try {
+				this.storage.recordAccess(candidate.memory.id)
+			} catch (error) {
+				console.error("[lucid] Failed to record access:", error)
+			}
+			this.updateWorkingMemory(candidate.memory.id, accessNow)
+		}
+
+		return finalCandidates
 	}
 
 	/**
@@ -686,16 +717,7 @@ export class LucidRetrieval {
 			})
 			.filter((c): c is NonNullable<typeof c> => c !== null)
 
-		// Record access and update Working Memory for returned memories
-		for (const candidate of candidates) {
-			try {
-				this.storage.recordAccess(candidate.memory.id)
-			} catch (error) {
-				console.error("[lucid] Failed to record access:", error)
-			}
-			this.updateWorkingMemory(candidate.memory.id, now)
-		}
-
+		// Note: Access recording moved to main retrieve() after session boost and final slice
 		return candidates
 	}
 
@@ -775,19 +797,9 @@ export class LucidRetrieval {
 
 		// Sort by score and limit
 		candidates.sort((a, b) => b.score - a.score)
-		const results = candidates.slice(0, limit)
 
-		// Record access and update Working Memory for returned memories
-		for (const candidate of results) {
-			try {
-				this.storage.recordAccess(candidate.memory.id)
-			} catch (error) {
-				console.error("[lucid] Failed to record access:", error)
-			}
-			this.updateWorkingMemory(candidate.memory.id, now)
-		}
-
-		return results
+		// Note: Access recording moved to main retrieve() after session boost and final slice
+		return candidates.slice(0, limit)
 	}
 
 	/**
