@@ -368,7 +368,8 @@ pub fn location_association_strength(
 	config: Option<JsLocationConfig>,
 ) -> f64 {
 	let cfg = js_config_to_core(config);
-	let multiplier = lucid_core::location::association_multiplier(is_same_task, is_same_activity, &cfg);
+	let multiplier =
+		lucid_core::location::association_multiplier(is_same_task, is_same_activity, &cfg);
 	core_association_strength(current_count, multiplier, &cfg)
 }
 

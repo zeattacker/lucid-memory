@@ -71,6 +71,7 @@ fn bench_retrieval_no_spreading(c: &mut Criterion) {
 		let access_histories = generate_access_histories(*memory_count, current_time);
 		let emotional_weights: Vec<f64> = (0..*memory_count).map(|_| 0.5).collect();
 		let decay_rates: Vec<f64> = (0..*memory_count).map(|_| 0.5).collect();
+		let working_memory_boosts: Vec<f64> = (0..*memory_count).map(|_| 1.0).collect();
 
 		let config = RetrievalConfig {
 			spreading_depth: 0, // No spreading
@@ -88,6 +89,7 @@ fn bench_retrieval_no_spreading(c: &mut Criterion) {
 					access_histories_ms: &access_histories,
 					emotional_weights: &emotional_weights,
 					decay_rates: &decay_rates,
+					working_memory_boosts: &working_memory_boosts,
 					associations: &[],
 					current_time_ms: current_time,
 				};
@@ -112,6 +114,7 @@ fn bench_retrieval_with_spreading(c: &mut Criterion) {
 		let access_histories = generate_access_histories(*memory_count, current_time);
 		let emotional_weights: Vec<f64> = (0..*memory_count).map(|_| 0.5).collect();
 		let decay_rates: Vec<f64> = (0..*memory_count).map(|_| 0.5).collect();
+		let working_memory_boosts: Vec<f64> = (0..*memory_count).map(|_| 1.0).collect();
 		// Create ~10% of memory count as associations
 		let associations = generate_associations(*memory_count, *memory_count / 10);
 
@@ -133,6 +136,7 @@ fn bench_retrieval_with_spreading(c: &mut Criterion) {
 					access_histories_ms: &access_histories,
 					emotional_weights: &emotional_weights,
 					decay_rates: &decay_rates,
+					working_memory_boosts: &working_memory_boosts,
 					associations: &associations,
 					current_time_ms: current_time,
 				};
@@ -157,6 +161,7 @@ fn bench_retrieval_varying_dimensions(c: &mut Criterion) {
 		let access_histories = generate_access_histories(memory_count, current_time);
 		let emotional_weights: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
 		let decay_rates: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
+		let working_memory_boosts: Vec<f64> = (0..memory_count).map(|_| 1.0).collect();
 
 		let config = RetrievalConfig::default();
 
@@ -168,6 +173,7 @@ fn bench_retrieval_varying_dimensions(c: &mut Criterion) {
 				access_histories_ms: &access_histories,
 				emotional_weights: &emotional_weights,
 				decay_rates: &decay_rates,
+				working_memory_boosts: &working_memory_boosts,
 				associations: &[],
 				current_time_ms: current_time,
 			};
@@ -191,6 +197,7 @@ fn bench_retrieval_varying_association_density(c: &mut Criterion) {
 	let access_histories = generate_access_histories(memory_count, current_time);
 	let emotional_weights: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
 	let decay_rates: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
+	let working_memory_boosts: Vec<f64> = (0..memory_count).map(|_| 1.0).collect();
 
 	for density_pct in &[0, 5, 10, 20, 50] {
 		let association_count = memory_count * density_pct / 100;
@@ -212,6 +219,7 @@ fn bench_retrieval_varying_association_density(c: &mut Criterion) {
 					access_histories_ms: &access_histories,
 					emotional_weights: &emotional_weights,
 					decay_rates: &decay_rates,
+					working_memory_boosts: &working_memory_boosts,
 					associations: &associations,
 					current_time_ms: current_time,
 				};
@@ -236,6 +244,7 @@ fn bench_retrieval_spreading_depth(c: &mut Criterion) {
 	let access_histories = generate_access_histories(memory_count, current_time);
 	let emotional_weights: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
 	let decay_rates: Vec<f64> = (0..memory_count).map(|_| 0.5).collect();
+	let working_memory_boosts: Vec<f64> = (0..memory_count).map(|_| 1.0).collect();
 	let associations = generate_associations(memory_count, memory_count / 10);
 
 	for depth in &[0, 1, 2, 3, 5] {
@@ -252,6 +261,7 @@ fn bench_retrieval_spreading_depth(c: &mut Criterion) {
 				access_histories_ms: &access_histories,
 				emotional_weights: &emotional_weights,
 				decay_rates: &decay_rates,
+				working_memory_boosts: &working_memory_boosts,
 				associations: &associations,
 				current_time_ms: current_time,
 			};
