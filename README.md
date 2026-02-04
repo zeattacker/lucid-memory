@@ -2,7 +2,7 @@
 
 **2.7ms retrieval. 743,000 memories/second. $0/query.**
 
-Memory for AI coding assistants that actually works like memory—local, fast, and cognitive. Lucid Memory is not a vector database, but a retrieval layer that makes vector databases obsolete for AI memory.
+Memory for AI that works like yours—local, instant, persistent.
 
 ```bash
 curl -fsSL lucidmemory.dev/install | bash
@@ -20,6 +20,10 @@ curl -fsSL lucidmemory.dev/install | bash
 ---
 
 ## Why Lucid Memory?
+
+**We're not a vector database. We're the retrieval layer that makes vector databases obsolete for AI memory.**
+
+Pinecone stores vectors. We understand context.
 
 <table>
 <tr>
