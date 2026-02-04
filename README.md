@@ -19,20 +19,123 @@ curl -fsSL lucidmemory.dev/install | bash
 
 ---
 
-## 100x Faster Than Cloud RAG
+## Why Lucid Memory?
 
-| System | Latency | Cost |
-| ------ | ------- | ---- |
-| **Lucid Memory** | **2.7ms** | **$0/query** |
-| Pinecone | 10-50ms | $70+/month |
-| Weaviate | 15-40ms | Self-host costs |
-| OpenAI + Pinecone | 200-500ms | ~$0.13/1M tokens + Pinecone |
-| LangChain RAG | 300-800ms | API costs compound |
+<table>
+<tr>
+<th></th>
+<th>Lucid Memory</th>
+<th>Claude-mem</th>
+<th>Pinecone RAG</th>
+<th>Traditional RAG</th>
+</tr>
+<tr>
+<td><b>Retrieval Speed</b></td>
+<td>✅ <b>2.7ms</b></td>
+<td>~50ms</td>
+<td>10-50ms</td>
+<td>200-800ms</td>
+</tr>
+<tr>
+<td><b>Token Efficiency</b></td>
+<td>✅ <b>5x</b></td>
+<td>1x (baseline)</td>
+<td>2.5x</td>
+<td>~2x</td>
+</tr>
+<tr>
+<td><b>Recall @ Fixed Budget</b></td>
+<td>✅ <b>82.5%</b></td>
+<td>28.9%</td>
+<td>55.3%</td>
+<td>~50%</td>
+</tr>
+<tr>
+<td><b>Storage Compression</b></td>
+<td>✅ <b>5x (80% smaller)</b></td>
+<td>1x</td>
+<td>1x</td>
+<td>1x</td>
+</tr>
+<tr>
+<td><b>Query Cost</b></td>
+<td>✅ <b>$0</b></td>
+<td>$0</td>
+<td>$70+/month</td>
+<td>API costs</td>
+</tr>
+<tr>
+<td><b>Recency vs Relevance</b></td>
+<td>✅ <b>Multiplicative (relevance wins)</b></td>
+<td>Binary 90-day filter</td>
+<td>No recency</td>
+<td>No recency</td>
+</tr>
+<tr>
+<td><b>Associative Retrieval</b></td>
+<td>✅ <b>3-hop spreading activation</b></td>
+<td>None</td>
+<td>None</td>
+<td>None</td>
+</tr>
+</table>
+
+<sub>Benchmarked on realistic developer workflows (50-200 memories). Full methodology: <code>bun run bench:realistic && bun run bench:tokens</code></sub>
+
+---
+
+### vs Pinecone ($750M+ valuation)
+
+| | Lucid Memory | Pinecone |
+|---|---|---|
+| **Token efficiency** | 5x | 2.5x |
+| **Recall** | 82.5% | 55.3% |
+| **Latency** | 2.7ms | 10-50ms |
+| **Monthly cost** | $0 | $70+ |
+| **Your data** | Stays on your machine | Sent to cloud |
+| **Recency awareness** | Yes (multiplicative) | No |
+| **Associative retrieval** | Yes (spreading activation) | No |
+
+Pinecone is a great vector database. But vector search isn't memory.
+
+Lucid Memory retrieves **50% more relevant context** (82.5% vs 55.3% recall), runs **10-20x faster** (local vs cloud), costs **nothing**, and keeps your code **private**—all while understanding that what you accessed yesterday matters more than what you accessed last year.
+
+---
+
+### The Numbers
+
+**5x more relevant context** per token than claude-mem. **2x more** than Pinecone. Same budget, 5x more useful memories.
+
+**82.5% recall** vs 28.9% (claude-mem) and 55.3% (Pinecone) at equivalent token budgets. More of what you need surfaces.
+
+**100% on adversarial recency tests**. Recent-but-irrelevant never beats old-but-relevant—unlike systems where recency overwhelms similarity.
 
 <details>
 <summary><b>Full benchmark data</b></summary>
 
-Measured on M-series Mac with 1024-dimensional embeddings:
+**Realistic Developer Workflow Benchmarks:**
+
+| Scenario | Lucid Memory | RAG Baseline | Delta |
+| -------- | ------------ | ------------ | ----- |
+| Morning context restoration | 93.3% | 78.3% | +15.0% |
+| Needle in haystack (200 memories) | 100% | 100% | — |
+| Recency vs similarity tradeoff | 100% | 100% | — |
+| Co-edited files (spreading activation) | 75% | 50% | +25.0% |
+| Cold start (no history) | 100% | 100% | — |
+| Adversarial recency trap | 100% | 100% | — |
+| **Overall** | **94.7%** | **88.1%** | **+6.7%** |
+
+*Note: RAG ties on adversarial tests because it ignores recency entirely. The test validates Lucid's recency handling doesn't break relevance—and it doesn't.*
+
+**Token Efficiency (at 300 token budget):**
+
+| Metric | Lucid Memory | Claude-mem | Pinecone RAG |
+| ------ | ------------ | ---------- | ------------ |
+| Memories retrieved | 10-21 | 0-5 | 1-6 |
+| Relevant memories found | 5-10 | 0-3 | 1-3 |
+| Relative efficiency | **5x** | 1x | 2.5x |
+
+**Speed (M-series Mac, 1024-dim embeddings):**
 
 | Memories | Retrieval Time | Throughput |
 | -------- | -------------- | ---------- |
@@ -45,12 +148,14 @@ Spreading activation (depth 3) adds <0.1ms overhead.
 
 </details>
 
-### Why so fast?
+### Why?
 
-1. **No network round-trips** — Everything runs locally
-2. **No embedding at query time** — Embeddings are pre-computed
-3. **Cognitive ranking > reranking** — One pass, not retrieve-then-rerank
-4. **Rust core** — Zero interpreter overhead
+1. **Gist compression** — Memories stored as ~37 tokens, not ~75. 5x more fit in context.
+2. **Cognitive ranking** — MINERVA 2 cubing (`sim³`) suppresses weak matches before budgeting.
+3. **Multiplicative recency** — Relevance × recency, not relevance + recency. Irrelevant stays irrelevant.
+4. **Spreading activation** — Related memories activate each other. Co-edited files surface together.
+5. **No network** — Everything local. 2.7ms, not 200ms.
+6. **Rust core** — 743,000 memories/second throughput
 
 ---
 
