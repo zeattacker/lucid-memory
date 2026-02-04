@@ -2,14 +2,14 @@
 
 **2.7ms retrieval. 743,000 memories/second. $0/query.**
 
-Memory for AI that actually works like memory—local, fast, and cognitive. Give Claude the power to remember beyond compaction, across any number of projects- and all with less token use or context than most SKILL.md files.
+Memory for AI coding assistants that actually works like memory—local, fast, and cognitive. Give your AI the power to remember beyond compaction, across any number of projects—and all with less token use or context than most SKILL.md files.
 
 ```bash
 curl -fsSL lucidmemory.dev/install | bash
 ```
 
 <div align="center">
-<sub>Works with Claude Code · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
+<sub>Works with Claude Code & OpenAI Codex · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
 <br><br>
 </div>
 
@@ -85,7 +85,7 @@ curl -fsSL lucidmemory.dev/install | bash
 irm lucidmemory.dev/install.ps1 | iex
 ```
 
-That's it. Claude Code now remembers across sessions.
+That's it. Your AI coding assistant now remembers across sessions.
 
 <details>
 <summary>What the installer does</summary>
@@ -93,11 +93,37 @@ That's it. Claude Code now remembers across sessions.
 1. Checks prerequisites (git, disk space)
 2. Installs Bun runtime if needed
 3. Sets up Ollama for local embeddings (or OpenAI API)
-4. Configures Claude Code MCP settings
-5. Installs hooks for automatic memory capture
-6. Restarts Claude Code to activate
+4. Lets you choose which clients to configure (Claude Code, Codex, or both)
+5. Optionally configures database isolation (shared, per-client, or custom profiles)
+6. Configures MCP settings for your chosen clients
+7. Installs hooks for automatic memory capture
+8. Restarts Claude Code to activate
 
-**Requirements:** 5GB free disk space, Claude Code installed
+**Requirements:** 5GB free disk space, Claude Code and/or Codex CLI installed
+
+</details>
+
+<details>
+<summary><b>Multi-client configuration</b></summary>
+
+Lucid Memory supports both Claude Code and OpenAI Codex. During installation, you can choose:
+
+**Database modes:**
+- **Shared** (default) — All clients share the same memory database
+- **Per-client** — Each client gets its own database (`memory-claude.db`, `memory-codex.db`)
+- **Profiles** — Custom named databases for different contexts (e.g., work vs personal)
+
+**Managing configuration:**
+```bash
+lucid config show                      # View current configuration
+lucid config set-mode per-client       # Switch to per-client databases
+lucid config create-profile work       # Create a new profile
+lucid config set-profile codex work    # Assign Codex to use the work profile
+```
+
+**Environment variable:**
+
+The `LUCID_CLIENT` environment variable determines which client is active. This is set automatically in the MCP config for each client.
 
 </details>
 
@@ -395,10 +421,11 @@ When memory 0 activates, memory 1 receives proportional activation.
 
 Lucid Memory runs entirely on your machine. Your memories never leave your computer.
 
-- **Database location:** `~/.lucid/memory.db` (SQLite, unencrypted)
+- **Database location:** `~/.lucid/memory.db` (or `memory-<client>.db` / `memory-<profile>.db` if using isolation)
 - **What's stored:** Text summaries of learnings, decisions, and context—not your source code
 - **Removing sensitive data:** Use `memory_forget` tool to delete specific memories
 - **Auto-updates:** Opt-in during installation; can be disabled in `~/.lucid/config.json`
+- **Configuration:** Client and database settings stored in `~/.lucid/config.json`
 
 The database contains project context that persists across sessions. Treat it like your shell history—useful for productivity, stored locally with standard file permissions.
 
