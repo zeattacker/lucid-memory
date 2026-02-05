@@ -13,9 +13,9 @@ curl -fsSL lucidmemory.dev/install | bash
 <br><br>
 </div>
 
-**New in 0.4.0:** <a href="#location-intuitions">Procedural Memory</a> — Claude learns your workflow, develops instincts, and creates muscle memory for actions. No more searching or directing Claude to common file locations - it just knows.
+**New in 0.5.0:** <a href="#episodic-memory">Episodic Memory</a> — Claude remembers not just what happened, but how it unfolded — reconstructing the story of your debugging session, not just the fix. "What was I working on before the auth refactor?" now has an answer.
 
-**Coming in 0.5.0:** Episodic Memory</a> — Claude remembers not just what happened, but how it unfolded —reconstructing the story of your debugging session, not just the fix.
+**New in 0.4.0:** <a href="#location-intuitions">Procedural Memory</a> — Claude learns your workflow, develops instincts, and creates muscle memory for actions. No more searching or directing Claude to common file locations - it just knows.
 
 ---
 
@@ -124,10 +124,13 @@ Lucid Memory retrieves **50% more relevant context** (82.5% vs 55.3% recall), ru
 | Morning context restoration | 93.3% | 78.3% | +15.0% |
 | Needle in haystack (200 memories) | 100% | 100% | — |
 | Recency vs similarity tradeoff | 100% | 100% | — |
-| Co-edited files (spreading activation) | 75% | 50% | +25.0% |
+| Co-edited files (spreading activation) | 100% | 75% | +25.0% |
 | Cold start (no history) | 100% | 100% | — |
 | Adversarial recency trap | 100% | 100% | — |
-| **Overall** | **94.7%** | **88.1%** | **+6.7%** |
+| Long-term decay | 100% | 100% | — |
+| Episode retrieval (0.5.0) | 80% | 0% | +80.0% |
+| Weak encoding retrieval | 100% | 60% | +40.0% |
+| **Overall** | **87.3%** | **71.3%** | **+16.0%** |
 
 *Note: RAG ties on adversarial tests because it ignores recency entirely. The test validates Lucid's recency handling doesn't break relevance—and it doesn't.*
 
@@ -284,6 +287,47 @@ When you share media in your conversation, Claude automatically processes and re
 **URLs:** YouTube, Vimeo, youtu.be, direct media links
 
 **Paths:** Simple paths, quoted paths with spaces, ~ expansion
+
+</details>
+
+<h3 id="episodic-memory">Episodic Memory</h3>
+
+**New in 0.5.0:** Claude remembers *sequences*, not just facts.
+
+Most AI memory systems remember individual pieces of information in isolation. Episodic memory captures the temporal structure of your work sessions — the difference between knowing "we fixed an auth bug" and remembering the full story: investigation, root cause, fix, tests.
+
+| Without Episodic Memory | With Episodic Memory |
+| ----------------------- | -------------------- |
+| "I remember the auth bug fix" | "Before the auth fix, we were investigating a memory leak in session-handler.ts" |
+| Each memory is isolated | Memories are linked in temporal sequences |
+| No sense of "before" or "after" | "What was I working on before X?" has an answer |
+
+**How it works:**
+
+- **Automatic episode creation** — Memories stored during a work session are grouped into episodes. New episodes start on time gaps (>5 min), project switches, or event count limits
+- **Temporal links** — Events within an episode are linked with forward/backward associations. Forward links are stronger than backward (1.0 vs 0.7), matching how human memory works (Temporal Context Model)
+- **Temporal spreading** — When you retrieve a memory, activation spreads to temporally linked memories, surfacing the surrounding context
+- **Narrative queries** — Ask "what happened before X?" or "what came after Y?" to reconstruct work sequences
+
+<details>
+<summary><b>The neuroscience</b></summary>
+
+Episodic Memory is modeled on three brain systems:
+
+**Temporal Context Model** (Howard & Kahana, 2002)
+- Memory retrieval is driven by temporal context, not just content
+- Forward associations are stronger than backward (asymmetric)
+- Strength decays with temporal distance: `strength = base × e^(-distance × 0.3)`
+
+**Episode Boundary Detection** (Zacks et al., 2007)
+- Continuous experience is segmented into discrete events
+- Boundaries triggered by context shifts (new task, time gap, location change)
+- Our implementation: time gaps >5 min, >50 events, project switches
+
+**Hippocampal Sequence Learning** (Eichenbaum, 2000)
+- The hippocampus encodes temporal relationships between events
+- Enables "mental time travel" — reconstructing sequences from partial cues
+- Our implementation: `retrieveTemporalNeighbors()` for before/after queries
 
 </details>
 
@@ -513,6 +557,12 @@ When memory 0 activates, memory 1 receives proportional activation.
 - Anderson, J. R., & Lebiere, C. (1998). *The Atomic Components of Thought*
 - Hintzman, D. L. (1988). Judgments of frequency and recognition memory in a multiple-trace memory model. *Psychological Review*, 95(4), 528-551.
 - Kahana, M. J. (2012). *Foundations of Human Memory*
+
+### Episodic Memory
+- Tulving, E. (1972). Episodic and semantic memory. In E. Tulving & W. Donaldson (Eds.), *Organization of Memory*
+- Howard, M. W., & Kahana, M. J. (2002). A distributed representation of temporal context. *Journal of Mathematical Psychology*, 46(3), 269-299.
+- Eichenbaum, H. (2000). A cortical-hippocampal system for declarative memory. *Nature Reviews Neuroscience*, 1(1), 41-50.
+- Zacks, J. M., Speer, N. K., Swallow, K. M., Braver, T. S., & Reynolds, J. R. (2007). Event perception: a mind-brain perspective. *Psychological Bulletin*, 133(2), 273.
 
 ### Spatial Memory & Location Intuitions
 - O'Keefe, J., & Nadel, L. (1978). *The Hippocampus as a Cognitive Map*

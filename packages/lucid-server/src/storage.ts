@@ -1222,6 +1222,25 @@ export class LucidStorage {
 		}))
 	}
 
+	getEpisodesForMemory(memoryId: string): Episode[] {
+		const rows = this.db
+			.prepare(
+				`SELECT DISTINCT e.* FROM episodes e INNER JOIN episode_events ee ON e.id = ee.episode_id WHERE ee.memory_id = ? ORDER BY e.started_at DESC`
+			)
+			.all(memoryId) as EpisodeRow[]
+
+		return rows.map((r) => this.rowToEpisode(r))
+	}
+
+	getEventCountForEpisode(episodeId: string): number {
+		const row = this.db
+			.prepare(
+				`SELECT COUNT(*) as count FROM episode_events WHERE episode_id = ?`
+			)
+			.get(episodeId) as { count: number } | null
+		return row?.count ?? 0
+	}
+
 	private rowToEpisode(row: EpisodeRow): Episode {
 		return {
 			id: row.id,

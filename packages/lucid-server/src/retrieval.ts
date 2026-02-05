@@ -20,6 +20,7 @@
 
 import {
 	ActivationConfig,
+	EpisodicMemoryConfig,
 	SessionConfig,
 	WorkingMemoryConfig,
 } from "./config.ts"
@@ -32,6 +33,8 @@ import {
 import { estimateTokens, generateGist } from "./gist.ts"
 import {
 	type Association,
+	type Episode,
+	type EpisodeBoundaryType,
 	LucidStorage,
 	type Memory,
 	type StorageConfig,
@@ -160,6 +163,13 @@ export class LucidRetrieval {
 		null
 	private readonly associationCacheTtlMs = 300000 // 5 minute TTL - associations rarely change
 
+	// Episode cache: memoryId → episodeIds (5-min TTL like association cache)
+	private episodeCache: Map<
+		string,
+		{ episodeIds: string[]; cachedAt: number }
+	> = new Map()
+	private readonly episodeCacheTtlMs = 300000
+
 	// Auto-association settings
 	// When a memory is stored, automatically link it to recent similar memories
 	private readonly autoAssociationLimit = 5 // Max associations to create per memory
@@ -198,6 +208,9 @@ export class LucidRetrieval {
 		// Clear association cache
 		this.associationCache = null
 
+		// Clear episode cache
+		this.episodeCache.clear()
+
 		// Close underlying storage
 		this.storage.close()
 	}
@@ -225,6 +238,108 @@ export class LucidRetrieval {
 	 */
 	invalidateAssociationCache(): void {
 		this.associationCache = null
+	}
+
+	private getCachedEpisodeIds(memoryId: string): string[] {
+		const now = Date.now()
+		const cached = this.episodeCache.get(memoryId)
+		if (cached && now - cached.cachedAt < this.episodeCacheTtlMs) {
+			return cached.episodeIds
+		}
+		const episodes = this.storage.getEpisodesForMemory(memoryId)
+		const episodeIds = episodes.map((e) => e.id)
+		this.episodeCache.set(memoryId, { episodeIds, cachedAt: now })
+		return episodeIds
+	}
+
+	private applyTemporalSpreading(
+		candidates: RetrievalCandidate[],
+		memoriesWithEmbeddings: Memory[],
+		memoryIdToIndex: Map<string, number>
+	): RetrievalCandidate[] {
+		// Take top 5 seeds
+		const seeds = candidates.slice(0, 5)
+		const boosts = new Map<number, number>()
+
+		for (const seed of seeds) {
+			const episodeIds = this.getCachedEpisodeIds(seed.memory.id)
+
+			for (const episodeId of episodeIds) {
+				const events = this.storage.getEpisodeEvents(episodeId)
+				const temporalLinks = this.storage.getEpisodeTemporalLinks(episodeId)
+
+				// Build event-to-memory mapping
+				const eventToMemoryIndex = new Map<string, number>()
+				for (const event of events) {
+					const idx = memoryIdToIndex.get(event.memoryId)
+					if (idx !== undefined) {
+						eventToMemoryIndex.set(event.id, idx)
+					}
+				}
+
+				// Convert SQLite temporal links to merged JsTemporalLink format
+				const jsLinks = mergeTemporalLinks(
+					temporalLinks,
+					events,
+					eventToMemoryIndex
+				)
+
+				if (jsLinks.length === 0) continue
+
+				const seedIdx = memoryIdToIndex.get(seed.memory.id)
+				if (seedIdx === undefined) continue
+
+				const config = {
+					forwardStrength: EpisodicMemoryConfig.forwardLinkStrength,
+					backwardStrength: EpisodicMemoryConfig.backwardLinkStrength,
+					distanceDecayRate: EpisodicMemoryConfig.distanceDecayRate,
+					episodeBoost: EpisodicMemoryConfig.episodeBoost,
+					contextPersistence: EpisodicMemoryConfig.contextPersistence,
+					maxTemporalDistance: EpisodicMemoryConfig.maxTemporalDistance,
+				}
+
+				let activations: number[]
+				if (shouldUseNative && nativeModule) {
+					const result = nativeModule.spreadTemporalActivation(
+						memoriesWithEmbeddings.length,
+						jsLinks,
+						seedIdx,
+						seed.score,
+						config
+					)
+					activations = result.activations
+				} else {
+					activations = spreadTemporalActivationTS(
+						memoriesWithEmbeddings.length,
+						jsLinks,
+						seedIdx,
+						seed.score,
+						config
+					)
+				}
+
+				for (let i = 0; i < activations.length; i++) {
+					const activation = activations[i]
+					if (activation && activation > 0) {
+						const current = boosts.get(i) ?? 0
+						boosts.set(i, Math.max(current, activation))
+					}
+				}
+			}
+		}
+
+		// Apply boosts (episodeBoost already applied inside spreading function)
+		for (const candidate of candidates) {
+			const idx = memoryIdToIndex.get(candidate.memory.id)
+			if (idx === undefined) continue
+			const boost = boosts.get(idx)
+			if (boost && boost > 0) {
+				candidate.score += boost
+			}
+		}
+
+		candidates.sort((a, b) => b.score - a.score)
+		return candidates
 	}
 
 	/**
@@ -630,6 +745,15 @@ export class LucidRetrieval {
 			)
 		}
 
+		// Phase 5: Episodic temporal spreading
+		if (EpisodicMemoryConfig.enabled) {
+			candidates = this.applyTemporalSpreading(
+				candidates,
+				memoriesWithEmbeddings,
+				memoryIdToIndex
+			)
+		}
+
 		// Phase 4: Apply session co-access boost
 		// Memories accessed in the same session get 1.5x score boost
 		const sessionId = this.getCurrentSession(projectId)
@@ -827,6 +951,38 @@ export class LucidRetrieval {
 		return candidates.slice(0, limit)
 	}
 
+	private detectEpisodeBoundary(
+		currentEpisode: Episode | null,
+		projectId?: string
+	): { needsNew: boolean; boundaryType: EpisodeBoundaryType } {
+		if (!currentEpisode) {
+			return { needsNew: true, boundaryType: "time_gap" }
+		}
+
+		// Time gap check
+		const events = this.storage.getEpisodeEvents(currentEpisode.id)
+		const lastEvent = events[events.length - 1]
+		if (lastEvent) {
+			const gapMs = Date.now() - lastEvent.createdAt
+			if (gapMs > EpisodicMemoryConfig.boundaryGapMinutes * 60_000) {
+				return { needsNew: true, boundaryType: "time_gap" }
+			}
+		}
+
+		// Event count check
+		const count = this.storage.getEventCountForEpisode(currentEpisode.id)
+		if (count >= EpisodicMemoryConfig.maxEventsPerEpisode) {
+			return { needsNew: true, boundaryType: "time_gap" }
+		}
+
+		// Context switch check
+		if (projectId && currentEpisode.projectId !== projectId) {
+			return { needsNew: true, boundaryType: "context_switch" }
+		}
+
+		return { needsNew: false, boundaryType: "time_gap" }
+	}
+
 	/**
 	 * Store a memory with automatic embedding, gist generation, and association creation.
 	 *
@@ -877,6 +1033,69 @@ export class LucidRetrieval {
 			} catch (error) {
 				// Embedding failed, memory is still stored - will be processed later
 				console.error("[lucid] Embedding failed:", error)
+			}
+		}
+
+		// Episode lifecycle (0.5.0 Episodic Memory)
+		if (EpisodicMemoryConfig.enabled) {
+			try {
+				let episode = this.storage.getCurrentEpisode(options.projectId)
+				const { needsNew, boundaryType } = this.detectEpisodeBoundary(
+					episode,
+					options.projectId
+				)
+
+				if (needsNew) {
+					if (episode) {
+						this.storage.endEpisode(episode.id)
+					}
+					episode = this.storage.createEpisode({
+						projectId: options.projectId,
+						boundaryType,
+					})
+				}
+
+				// episode is guaranteed non-null: either from getCurrentEpisode (needsNew=false)
+				// or from createEpisode (which always returns Episode or throws)
+				const ep = episode as NonNullable<typeof episode>
+				const event = this.storage.addEventToEpisode(ep.id, memory.id)
+
+				// Invalidate episode cache for this memory
+				this.episodeCache.delete(memory.id)
+
+				// Create temporal links to prior events in this episode
+				if (event) {
+					const events = this.storage.getEpisodeEvents(ep.id)
+					for (const priorEvent of events) {
+						if (priorEvent.id === event.id) continue
+						const distance = event.position - priorEvent.position
+						if (distance > EpisodicMemoryConfig.maxTemporalDistance) continue
+
+						const decayFactor = Math.exp(
+							-distance * EpisodicMemoryConfig.distanceDecayRate
+						)
+
+						// Forward link: prior → new
+						this.storage.createTemporalLink({
+							episodeId: ep.id,
+							sourceEventId: priorEvent.id,
+							targetEventId: event.id,
+							strength: EpisodicMemoryConfig.forwardLinkStrength * decayFactor,
+							direction: "forward",
+						})
+
+						// Backward link: new → prior
+						this.storage.createTemporalLink({
+							episodeId: ep.id,
+							sourceEventId: event.id,
+							targetEventId: priorEvent.id,
+							strength: EpisodicMemoryConfig.backwardLinkStrength * decayFactor,
+							direction: "backward",
+						})
+					}
+				}
+			} catch (error) {
+				console.error("[lucid] Episode lifecycle failed:", error)
 			}
 		}
 
@@ -934,15 +1153,132 @@ export class LucidRetrieval {
 		const topAssociations = similarities.slice(0, this.autoAssociationLimit)
 
 		// Create bidirectional associations
+		// Wrapped in try-catch to handle race conditions where a memory
+		// could be deleted between listing and associating (MIG-3)
+		let associationsCreated = 0
 		for (const { id: targetId, similarity } of topAssociations) {
-			// Use similarity as strength (already in 0.4-1.0 range due to threshold)
-			this.storage.associate(memoryId, targetId, similarity, "temporal")
+			try {
+				// Use similarity as strength (already in 0.4-1.0 range due to threshold)
+				this.storage.associate(memoryId, targetId, similarity, "temporal")
+				associationsCreated++
+			} catch (error) {
+				// Log but don't fail - the target memory may have been deleted
+				// or there could be a transient database issue
+				console.warn(
+					`[lucid] Failed to create association ${memoryId} -> ${targetId}:`,
+					error instanceof Error ? error.message : error
+				)
+			}
 		}
 
 		// Invalidate association cache since we added new ones
-		if (topAssociations.length > 0) {
+		if (associationsCreated > 0) {
 			this.invalidateAssociationCache()
 		}
+	}
+
+	async retrieveTemporalNeighbors(
+		anchorQuery: string,
+		direction: "before" | "after" | "both" = "before",
+		options?: { limit?: number; projectId?: string }
+	): Promise<RetrievalCandidate[]> {
+		const limit = options?.limit ?? 5
+
+		// Find anchor candidates — try multiple and pick the one with the most
+		// neighbors in the requested direction. Without embeddings, the top
+		// retrieval result may be the last event (no "after" neighbors).
+		const anchors = await this.retrieve(
+			anchorQuery,
+			{ maxResults: 10 },
+			options?.projectId
+		)
+		if (anchors.length === 0) return []
+
+		let bestResults: RetrievalCandidate[] = []
+
+		for (const anchor of anchors) {
+			const episodeIds = this.getCachedEpisodeIds(anchor.memory.id)
+			if (episodeIds.length === 0) continue
+
+			const results = new Map<string, RetrievalCandidate>()
+
+			for (const episodeId of episodeIds) {
+				const events = this.storage.getEpisodeEvents(episodeId)
+				const temporalLinks = this.storage.getEpisodeTemporalLinks(episodeId)
+
+				// Build event-to-memory mapping
+				const eventToMemoryIdx = new Map<string, number>()
+				const memoryMap = new Map<number, Memory>()
+				let idx = 0
+				for (const event of events) {
+					eventToMemoryIdx.set(event.id, idx)
+					const mem = this.storage.getMemory(event.memoryId)
+					if (mem) memoryMap.set(idx, mem)
+					idx++
+				}
+
+				// Find anchor index
+				const anchorEvent = events.find((e) => e.memoryId === anchor.memory.id)
+				if (!anchorEvent) continue
+				const anchorIdx = eventToMemoryIdx.get(anchorEvent.id)
+				if (anchorIdx === undefined) continue
+
+				// Convert temporal links (merge forward+backward into single links per pair)
+				const jsLinks = mergeTemporalLinks(
+					temporalLinks,
+					events,
+					eventToMemoryIdx
+				)
+
+				if (jsLinks.length === 0) continue
+
+				let neighbors: Array<{
+					memoryIndex: number
+					strength: number
+				}>
+				if (shouldUseNative && nativeModule) {
+					neighbors = nativeModule.findTemporalNeighbors(
+						jsLinks,
+						anchorIdx,
+						direction,
+						limit
+					)
+				} else {
+					neighbors = findTemporalNeighborsTS(
+						jsLinks,
+						anchorIdx,
+						direction,
+						limit
+					)
+				}
+
+				for (const neighbor of neighbors) {
+					const mem = memoryMap.get(neighbor.memoryIndex)
+					if (!mem || mem.id === anchor.memory.id) continue
+					if (!results.has(mem.id)) {
+						results.set(mem.id, {
+							memory: mem,
+							score: neighbor.strength,
+							similarity: 0,
+							baseLevel: 0,
+							spreading: neighbor.strength,
+							probability: 1.0,
+						})
+					}
+				}
+			}
+
+			if (results.size > bestResults.length) {
+				bestResults = Array.from(results.values())
+					.sort((a, b) => b.score - a.score)
+					.slice(0, limit)
+			}
+
+			// With embeddings, the first anchor is the best semantic match
+			if (bestResults.length >= limit) break
+		}
+
+		return bestResults
 	}
 
 	/**
@@ -1449,8 +1785,9 @@ function computeBaseLevelTS(
 /**
  * Build an index map from associations for O(1) lookup.
  * MED-4: This eliminates the O(n²) filter operation in spreading activation.
+ * Exported for testing and potential Rust migration.
  */
-function buildAssociationIndex(
+export function buildAssociationIndex(
 	associations: Association[]
 ): Map<string, Association[]> {
 	const index = new Map<string, Association[]>()
@@ -1526,4 +1863,145 @@ function retrievalProbabilityTS(
 ): number {
 	const exponent = (threshold - activation) / noise
 	return 1 / (1 + Math.exp(exponent))
+}
+
+// ============================================================================
+// Episodic Memory TypeScript Fallbacks
+// ============================================================================
+
+interface JsTemporalLinkTS {
+	sourcePosition: number
+	targetPosition: number
+	sourceMemory: number
+	targetMemory: number
+	forwardStrength: number
+	backwardStrength: number
+}
+
+/**
+ * Merge separate forward/backward SQLite rows into single links per event pair.
+ *
+ * SQLite stores two rows per pair (forward: earlier→later, backward: later→earlier).
+ * Rust expects one link per pair with source=earlier, target=later, both strengths set.
+ */
+function mergeTemporalLinks(
+	rawLinks: Array<{
+		sourceEventId: string
+		targetEventId: string
+		strength: number
+		direction: "forward" | "backward"
+	}>,
+	events: Array<{ id: string; memoryId: string; position: number }>,
+	eventToMemoryIdx: Map<string, number>
+): JsTemporalLinkTS[] {
+	const eventMap = new Map(events.map((e) => [e.id, e]))
+	const merged = new Map<string, JsTemporalLinkTS>()
+
+	for (const link of rawLinks) {
+		const srcEvent = eventMap.get(link.sourceEventId)
+		const tgtEvent = eventMap.get(link.targetEventId)
+		if (!srcEvent || !tgtEvent) continue
+
+		// Normalize: earlier position is always "source"
+		const earlierEvent =
+			srcEvent.position <= tgtEvent.position ? srcEvent : tgtEvent
+		const laterEvent =
+			srcEvent.position <= tgtEvent.position ? tgtEvent : srcEvent
+
+		const earlierIdx = eventToMemoryIdx.get(earlierEvent.id)
+		const laterIdx = eventToMemoryIdx.get(laterEvent.id)
+		if (earlierIdx === undefined || laterIdx === undefined) continue
+
+		const key = `${earlierEvent.id}-${laterEvent.id}`
+		const existing = merged.get(key) ?? {
+			sourcePosition: earlierEvent.position,
+			targetPosition: laterEvent.position,
+			sourceMemory: earlierIdx,
+			targetMemory: laterIdx,
+			forwardStrength: 0,
+			backwardStrength: 0,
+		}
+
+		if (link.direction === "forward") {
+			existing.forwardStrength = Math.max(
+				existing.forwardStrength,
+				link.strength
+			)
+		} else {
+			existing.backwardStrength = Math.max(
+				existing.backwardStrength,
+				link.strength
+			)
+		}
+
+		merged.set(key, existing)
+	}
+
+	return Array.from(merged.values())
+}
+
+function spreadTemporalActivationTS(
+	numMemories: number,
+	links: JsTemporalLinkTS[],
+	seedMemory: number,
+	seedActivation: number,
+	config: {
+		episodeBoost?: number
+	}
+): number[] {
+	const activations = new Array<number>(numMemories).fill(0)
+	const boost = config.episodeBoost ?? 1.2
+
+	// Set seed activation (matches Rust behavior)
+	if (seedMemory < numMemories) {
+		activations[seedMemory] = seedActivation
+	}
+
+	for (const link of links) {
+		if (link.sourceMemory === seedMemory && link.forwardStrength > 0) {
+			const spread = seedActivation * link.forwardStrength * boost
+			activations[link.targetMemory] =
+				(activations[link.targetMemory] ?? 0) + spread
+		}
+		if (link.targetMemory === seedMemory && link.backwardStrength > 0) {
+			const spread = seedActivation * link.backwardStrength * boost
+			activations[link.sourceMemory] =
+				(activations[link.sourceMemory] ?? 0) + spread
+		}
+	}
+
+	return activations
+}
+
+function findTemporalNeighborsTS(
+	links: JsTemporalLinkTS[],
+	anchorMemory: number,
+	direction: string,
+	limit: number
+): Array<{ memoryIndex: number; strength: number }> {
+	const neighbors = new Map<number, number>()
+
+	for (const link of links) {
+		if (
+			link.sourceMemory === anchorMemory &&
+			link.forwardStrength > 0 &&
+			(direction === "after" || direction === "both")
+		) {
+			const current = neighbors.get(link.targetMemory) ?? 0
+			neighbors.set(link.targetMemory, Math.max(current, link.forwardStrength))
+		}
+		if (
+			link.targetMemory === anchorMemory &&
+			link.backwardStrength > 0 &&
+			(direction === "before" || direction === "both")
+		) {
+			const current = neighbors.get(link.sourceMemory) ?? 0
+			neighbors.set(link.sourceMemory, Math.max(current, link.backwardStrength))
+		}
+	}
+
+	return Array.from(neighbors.entries())
+		.map(([memoryIndex, strength]) => ({ memoryIndex, strength }))
+		.sort((a, b) => b.strength - a.strength)
+		.slice(0, limit)
 }

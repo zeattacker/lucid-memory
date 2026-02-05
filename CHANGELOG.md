@@ -7,7 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-04
+
 ### Added
+
+#### Episodic Memory
+
+Claude now remembers *sequences*, not just facts. Episodic memory captures the temporal structure of your work sessions — the difference between knowing "we fixed an auth bug" and remembering "first we investigated the memory leak, then traced it to session-handler.ts, then refactored the auth module."
+
+**Key features:**
+
+- **Episode lifecycle** — Memories are automatically grouped into episodes during `store()`. Boundary detection triggers new episodes on time gaps (>5 min), event count limits (>50), or project switches.
+- **Temporal links** — Forward/backward links between events with TCM asymmetry (forward=1.0, backward=0.7) and exponential distance decay.
+- **Temporal spreading** — Integrated into `retrieve()` pipeline. Top 5 seed memories spread activation through episode links, boosting temporally related memories.
+- **Temporal queries** — `retrieveTemporalNeighbors(anchor, "before"|"after"|"both")` answers "What was I working on before X?"
+- **MCP tool** — `memory_narrative` exposes temporal queries to Claude for narrative reconstruction.
+
+**The neuroscience:**
+
+| Model | Function | Implementation |
+|-------|----------|----------------|
+| Temporal Context Model (Howard & Kahana 2002) | Forward/backward asymmetry | Forward links 1.0, backward links 0.7 |
+| Episodic boundary detection (Zacks et al. 2007) | Segmenting continuous experience | Time gap, event count, context switch triggers |
+| Distance decay | Closer events more strongly linked | `strength = base × e^(-distance × 0.3)` |
+
+**Benchmark impact:**
+
+| Metric | Before 0.5.0 | After 0.5.0 | Change |
+|--------|-------------|-------------|--------|
+| `episode_retrieval` scenario | 0% | 80% | +80% |
+| Cognitive average | 79.3% | 87.3% | +8% |
+| Delta vs RAG | +8% | +16% | doubled |
+| Cognitive wins | 3/10 | 4/10 | +1 |
 
 #### Rust Migration — Cognitive Computations
 
@@ -24,31 +55,36 @@ Migrated all math-heavy cognitive computations from TypeScript to Rust for 100x 
 | `compute_association_decay()` | Consolidation-state-dependent decay |
 | `reinforce_association()` | Co-access boost for associations |
 | `should_prune_association()` | Pruning threshold check |
-
-**Episodic Memory Foundation (0.5.0 prep):**
-
-| Function | Purpose |
-|----------|---------|
 | `create_episode_links()` | TCM-based temporal links with distance decay |
 | `spread_temporal_activation()` | Forward/backward asymmetric spreading |
 | `find_temporal_neighbors()` | "What was I working on before/after X?" queries |
 
-**The neuroscience:**
+#### New Database Schema
 
-- Forward links stronger than backward (1.0 vs 0.7) per TCM (Howard & Kahana 2002)
-- Distance decay: `strength = base × e^(-distance × 0.3)`
-- Episode boost: 1.2x for temporally linked memories
+| Table | Purpose |
+|-------|---------|
+| `episodes` | Temporal sequence containers with boundary type and project scope |
+| `episode_events` | Links memories to episodes with position ordering |
+| `episode_temporal_links` | Forward/backward links between events within episodes |
+
+New columns on `memories`: `encoding_strength`, `encoding_context`, `consolidation_state`, `last_consolidated`
+
+New columns on `associations`: `last_reinforced`, `co_access_count`
 
 ### Changed
 
 - TypeScript now delegates to native Rust functions when available
 - All native calls properly guarded with `shouldUseNative && nativeModule`
-- Added `maxTemporalDistance` to `EpisodicMemoryConfig` (default: 10)
+- `EpisodicMemoryConfig` with 9 tunable parameters and feature flag
+- Retrieval pipeline now includes episodic temporal spreading (Phase 5)
 
 ### Fixed
 
+- Double `episodeBoost` multiplication in temporal spreading (was applying 1.44x instead of 1.2x)
+- TS/Rust parity in `spreadTemporalActivationTS` — removed incorrect `contextPersistence` multiplier, fixed accumulation method, added seed activation
 - Missing `shouldUseNative` guard in `createAutoAssociations()` cosine similarity call
 - `createdAt.getTime()` error (field is already a number, not Date)
+- Empty anchor string accepted by `memory_narrative` tool (now requires min 1 char)
 
 ## [0.4.0] - 2025-02-02
 

@@ -381,6 +381,112 @@ server.tool(
 )
 
 /**
+ * memory_narrative - Find temporally adjacent memories
+ */
+server.tool(
+	"memory_narrative",
+	"Find what happened before or after a specific event. Use for questions like 'What was I working on before X?'",
+	{
+		anchor: z
+			.string()
+			.min(1, "Anchor cannot be empty")
+			.describe("The event to find context around"),
+		direction: z
+			.enum(["before", "after", "both"])
+			.optional()
+			.default("before")
+			.describe("Which direction to search"),
+		limit: z
+			.number()
+			.min(1)
+			.max(10)
+			.optional()
+			.default(5)
+			.describe("Max results"),
+		projectPath: z.string().optional().describe("Filter by project path"),
+	},
+	async ({ anchor, direction, limit, projectPath }) => {
+		try {
+			const { EpisodicMemoryConfig } = await import("./config.ts")
+			if (!EpisodicMemoryConfig.enabled) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify({
+								message:
+									"Episodic memory is not yet enabled. Temporal queries require episode data to be collected first.",
+							}),
+						},
+					],
+				}
+			}
+
+			let projectId: string | undefined
+			if (projectPath) {
+				const project = retrieval.storage.getOrCreateProject(projectPath)
+				projectId = project.id
+			}
+
+			const results = await retrieval.retrieveTemporalNeighbors(
+				anchor,
+				direction,
+				{ limit, projectId }
+			)
+
+			if (results.length === 0) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: JSON.stringify(
+								{
+									message: `No temporal neighbors found ${direction} "${anchor}".`,
+									suggestions: [
+										"The anchor memory may not be part of an episode yet",
+										"Try a different search term",
+										"Episodes are built as memories are stored",
+									],
+								},
+								null,
+								2
+							),
+						},
+					],
+				}
+			}
+
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify(
+							{
+								anchor,
+								direction,
+								count: results.length,
+								memories: results.map((r) => ({
+									id: r.memory.id,
+									content: r.memory.content,
+									type: r.memory.type,
+									temporalStrength: Math.round(r.spreading * 100) / 100,
+									tags: r.memory.tags,
+									createdAt: new Date(r.memory.createdAt).toISOString(),
+								})),
+							},
+							null,
+							2
+						),
+					},
+				],
+			}
+		} catch (error) {
+			return toolError("memory_narrative", error)
+		}
+	}
+)
+
+/**
  * memory_context - Get relevant context for current task
  */
 server.tool(

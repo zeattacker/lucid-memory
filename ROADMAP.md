@@ -6,7 +6,7 @@ Future directions for Lucid Memory, grounded in cognitive science and practical 
 
 ## 0.5.0 — Episodic Memory
 
-**Status:** Planned
+**Status:** Shipped (2026-02-04)
 
 Memories are currently individual items with associations. Episodic memory captures *sequences* of events with causal and temporal structure—the difference between knowing facts and remembering experiences.
 
@@ -49,6 +49,19 @@ in isolation, and finally integrated it back with the mutex fix."
 - New `episodes` table linking memories with temporal order
 - Episode boundary detection (task switches, time gaps, explicit markers)
 - Retrieval query: "what happened before/after X?"
+
+### What Shipped
+
+| Component | Details |
+|-----------|---------|
+| Episode lifecycle | Auto-creates episodes on `store()` with boundary detection (time gap >5min, >50 events, project switch) |
+| Temporal links | Forward/backward links with TCM asymmetry (forward=1.0, backward=0.7) and distance decay |
+| Temporal spreading | Integrated into `retrieve()` pipeline — top 5 seeds spread activation through episode links |
+| Temporal queries | `retrieveTemporalNeighbors(anchor, direction)` for "before/after X" |
+| MCP tool | `memory_narrative` — exposes temporal queries to Claude |
+| Native performance | Rust `spreadTemporalActivation` + `findTemporalNeighbors` with TypeScript fallback |
+| Config | `EpisodicMemoryConfig` with 9 tunable parameters |
+| Tests | 16 new tests (163 total passing) |
 
 ---
 

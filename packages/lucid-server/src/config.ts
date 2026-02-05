@@ -157,7 +157,7 @@ export const EpisodicMemoryConfig = {
 	maxTemporalDistance: 10,
 
 	/** Feature flag */
-	enabled: false,
+	enabled: true,
 } as const
 
 // ============================================================================
