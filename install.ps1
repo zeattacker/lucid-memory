@@ -477,9 +477,16 @@ if (-not $NativeReady -and (Test-Path "$LucidDir\native")) {
     $NativeReleaseUrl = "https://github.com/JasonDocton/lucid-memory/releases/latest/download/$NativeBinary"
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $NativeReleaseUrl -OutFile $NativeBinaryPath -ErrorAction Stop
-        Write-Success "Downloaded native binary"
-        $NativeReady = $true
+        # Verify download is not empty (404 pages can create 0-byte files)
+        if ((Test-Path $NativeBinaryPath) -and (Get-Item $NativeBinaryPath).Length -gt 0) {
+            Write-Success "Downloaded native binary"
+            $NativeReady = $true
+        } else {
+            Remove-Item $NativeBinaryPath -Force -ErrorAction SilentlyContinue
+            Write-Host "  Downloaded file was empty, skipping"
+        }
     } catch {
+        Remove-Item $NativeBinaryPath -Force -ErrorAction SilentlyContinue
         Write-Host "  No pre-built native binary available for download"
     }
 }
@@ -532,9 +539,15 @@ if (-not $PerceptionReady -and (Test-Path "$LucidDir\perception")) {
     $PerceptionReleaseUrl = "https://github.com/JasonDocton/lucid-memory/releases/latest/download/$PerceptionBinary"
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $PerceptionReleaseUrl -OutFile $PerceptionBinaryPath -ErrorAction Stop
-        Write-Success "Downloaded perception binary"
-        $PerceptionReady = $true
+        if ((Test-Path $PerceptionBinaryPath) -and (Get-Item $PerceptionBinaryPath).Length -gt 0) {
+            Write-Success "Downloaded perception binary"
+            $PerceptionReady = $true
+        } else {
+            Remove-Item $PerceptionBinaryPath -Force -ErrorAction SilentlyContinue
+            Write-Host "  Downloaded file was empty, skipping"
+        }
     } catch {
+        Remove-Item $PerceptionBinaryPath -Force -ErrorAction SilentlyContinue
         Write-Host "  No pre-built perception binary available for download"
     }
 }
@@ -859,16 +872,28 @@ try {
         $Config | Add-Member -NotePropertyName "hooks" -NotePropertyValue (New-Object PSObject) -Force
     }
 
-    $Config.hooks | Add-Member -NotePropertyName "UserPromptSubmit" -NotePropertyValue @(
-        [PSCustomObject]@{
-            hooks = @(
-                [PSCustomObject]@{
-                    type = "command"
-                    command = "powershell -ExecutionPolicy Bypass -File `"$HookCommand`""
+    # Merge: keep existing non-Lucid hooks, add/replace only Lucid's entry
+    $LucidHookEntry = [PSCustomObject]@{
+        hooks = @(
+            [PSCustomObject]@{
+                type = "command"
+                command = "powershell -ExecutionPolicy Bypass -File `"$HookCommand`""
+            }
+        )
+    }
+    $ExistingHooks = @()
+    if ($Config.hooks.UserPromptSubmit) {
+        $ExistingHooks = @($Config.hooks.UserPromptSubmit | Where-Object {
+            $IsLucid = $false
+            if ($_.hooks) {
+                foreach ($h in $_.hooks) {
+                    if ($h.command -and $h.command -match 'lucid|user-prompt-submit') { $IsLucid = $true }
                 }
-            )
-        }
-    ) -Force
+            }
+            -not $IsLucid
+        })
+    }
+    $Config.hooks | Add-Member -NotePropertyName "UserPromptSubmit" -NotePropertyValue @($ExistingHooks + $LucidHookEntry) -Force
 
     Write-Utf8 $ClaudeSettings ($Config | ConvertTo-Json -Depth 10)
     Write-Success "Hook configured in settings.json"
@@ -934,7 +959,7 @@ Write-Host "Restarting Claude Code to activate Lucid Memory..."
 
 $ClaudeProcess = Get-Process -Name "Claude*" -ErrorAction SilentlyContinue
 if ($ClaudeProcess) {
-    $ClaudeProcess | Stop-Process -Force
+    $ClaudeProcess | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
 
     # Try to restart Claude

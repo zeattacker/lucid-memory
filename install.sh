@@ -323,8 +323,8 @@ restart_claude_code() {
         fi
     else
         # Linux - try common locations
-        if pgrep -f "claude" > /dev/null; then
-            pkill -f "claude" 2>/dev/null || true
+        if pgrep -x "claude" > /dev/null; then
+            pkill -x "claude" 2>/dev/null || true
             sleep 2
             # Try to restart - location varies
             if [ -f "/usr/bin/claude" ]; then
@@ -973,7 +973,11 @@ cd "$LUCID_DIR/server"
 # Update package.json to point to the correct native package location (only if native exists)
 if [ -f "package.json" ] && [ -d "$LUCID_DIR/native" ]; then
     if command -v jq &> /dev/null; then
-        jq '.dependencies["@lucid-memory/native"] = "file:../native"' package.json > package.json.tmp && mv package.json.tmp package.json
+        if jq '.dependencies["@lucid-memory/native"] = "file:../native"' package.json > package.json.tmp 2>/dev/null; then
+            mv package.json.tmp package.json
+        else
+            rm -f package.json.tmp
+        fi
     elif command -v python3 &> /dev/null; then
         python3 << 'PYEOF'
 import json
@@ -989,7 +993,11 @@ PYEOF
 elif [ -f "package.json" ]; then
     # Native package doesn't exist, remove the dependency to avoid errors
     if command -v jq &> /dev/null; then
-        jq 'del(.dependencies["@lucid-memory/native"])' package.json > package.json.tmp && mv package.json.tmp package.json
+        if jq 'del(.dependencies["@lucid-memory/native"])' package.json > package.json.tmp 2>/dev/null; then
+            mv package.json.tmp package.json
+        else
+            rm -f package.json.tmp
+        fi
     elif command -v python3 &> /dev/null; then
         python3 << 'PYEOF'
 import json
@@ -1007,7 +1015,11 @@ fi
 if [ -f "package.json" ] && [ -d "$LUCID_DIR/perception" ]; then
     if command -v jq &> /dev/null; then
         # Move from optionalDependencies to dependencies and update path
-        jq 'del(.optionalDependencies["@lucid-memory/perception"]) | .dependencies["@lucid-memory/perception"] = "file:../perception"' package.json > package.json.tmp && mv package.json.tmp package.json
+        if jq 'del(.optionalDependencies["@lucid-memory/perception"]) | .dependencies["@lucid-memory/perception"] = "file:../perception"' package.json > package.json.tmp 2>/dev/null; then
+            mv package.json.tmp package.json
+        else
+            rm -f package.json.tmp
+        fi
     elif command -v python3 &> /dev/null; then
         python3 << 'PYEOF'
 import json
@@ -1027,7 +1039,11 @@ PYEOF
 elif [ -f "package.json" ]; then
     # Perception package doesn't exist, remove the dependency to avoid errors
     if command -v jq &> /dev/null; then
-        jq 'del(.optionalDependencies["@lucid-memory/perception"]) | del(.dependencies["@lucid-memory/perception"])' package.json > package.json.tmp && mv package.json.tmp package.json
+        if jq 'del(.optionalDependencies["@lucid-memory/perception"]) | del(.dependencies["@lucid-memory/perception"])' package.json > package.json.tmp 2>/dev/null; then
+            mv package.json.tmp package.json
+        else
+            rm -f package.json.tmp
+        fi
     elif command -v python3 &> /dev/null; then
         python3 << 'PYEOF'
 import json
@@ -1105,7 +1121,7 @@ case $EMBED_CHOICE in
             echo "Installing Ollama..."
 
             if [[ "$OSTYPE" == "darwin"* ]]; then
-                brew install ollama
+                brew install ollama || true
             else
                 # Linux — Ollama's installer uses sudo internally
                 if [ "$INTERACTIVE" = true ]; then
@@ -1215,9 +1231,11 @@ if [ ! -f "$LUCID_MODELS/ggml-base.en.bin" ]; then
     echo ""
     echo "Downloading Whisper model for video transcription (74MB)..."
     if curl -fL -o "$LUCID_MODELS/ggml-base.en.bin" \
-      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" 2>/dev/null; then
+      "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" 2>/dev/null \
+      && [ -s "$LUCID_MODELS/ggml-base.en.bin" ]; then
         success "Whisper model downloaded"
     else
+        rm -f "$LUCID_MODELS/ggml-base.en.bin"
         warn "Could not download Whisper model - video transcription will be unavailable"
         echo "  To download manually: curl -L -o $LUCID_MODELS/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
     fi
@@ -1422,30 +1440,17 @@ configure_hook() {
     # If jq is available, use it
     if command -v jq &> /dev/null; then
         if [ -f "$settings_file" ]; then
-            # Add hook to existing settings
+            # Merge: keep existing non-Lucid hooks, add Lucid's entry
             jq --arg cmd "$hook_cmd" '
-                .hooks.UserPromptSubmit = [
-                    {
-                        "hooks": [
-                            {"type": "command", "command": $cmd}
-                        ]
-                    }
-                ]
+                .hooks.UserPromptSubmit = (
+                    [(.hooks.UserPromptSubmit // [])[] | select(
+                        (.hooks // []) | all(.command | test("lucid|user-prompt-submit") | not)
+                    )] + [{"hooks": [{"type": "command", "command": $cmd}]}]
+                )
             ' "$settings_file" > "$settings_file.tmp" && mv "$settings_file.tmp" "$settings_file"
         else
-            # Create new settings file
             jq -n --arg cmd "$hook_cmd" '
-                {
-                    "hooks": {
-                        "UserPromptSubmit": [
-                            {
-                                "hooks": [
-                                    {"type": "command", "command": $cmd}
-                                ]
-                            }
-                        ]
-                    }
-                }
+                {"hooks": {"UserPromptSubmit": [{"hooks": [{"type": "command", "command": $cmd}]}]}}
             ' > "$settings_file"
         fi
         return 0
@@ -1454,7 +1459,7 @@ configure_hook() {
     # If python is available, use it
     if command -v python3 &> /dev/null; then
         python3 - "$settings_file" "$hook_cmd" << 'PYEOF'
-import json, sys, os
+import json, sys, os, re
 settings_file, hook_cmd = sys.argv[1], sys.argv[2]
 if os.path.exists(settings_file):
     with open(settings_file, 'r') as f:
@@ -1463,9 +1468,13 @@ else:
     config = {}
 if 'hooks' not in config:
     config['hooks'] = {}
-config['hooks']['UserPromptSubmit'] = [
-    {'hooks': [{'type': 'command', 'command': hook_cmd}]}
-]
+existing = config['hooks'].get('UserPromptSubmit', [])
+filtered = [e for e in existing if not any(
+    re.search(r'lucid|user-prompt-submit', h.get('command', ''))
+    for h in e.get('hooks', [])
+)]
+filtered.append({'hooks': [{'type': 'command', 'command': hook_cmd}]})
+config['hooks']['UserPromptSubmit'] = filtered
 with open(settings_file, 'w') as f:
     json.dump(config, f, indent=2)
 PYEOF

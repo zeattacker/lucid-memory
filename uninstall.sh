@@ -206,19 +206,39 @@ info "Removing hook configuration..."
 CLAUDE_SETTINGS="$CLAUDE_SETTINGS_DIR/settings.json"
 if [ -f "$CLAUDE_SETTINGS" ]; then
     if command -v jq &> /dev/null; then
-        jq 'del(.hooks.UserPromptSubmit)' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" && mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
-        success "Hook config removed from settings.json"
+        # Remove only Lucid's hook entries, preserve other hooks
+        if jq '
+            if .hooks.UserPromptSubmit then
+                .hooks.UserPromptSubmit = [
+                    .hooks.UserPromptSubmit[] | select(
+                        (.hooks // []) | all(.command | test("lucid|user-prompt-submit") | not)
+                    )
+                ] |
+                if (.hooks.UserPromptSubmit | length) == 0 then del(.hooks.UserPromptSubmit) else . end
+            else . end
+        ' "$CLAUDE_SETTINGS" > "$CLAUDE_SETTINGS.tmp" 2>/dev/null; then
+            mv "$CLAUDE_SETTINGS.tmp" "$CLAUDE_SETTINGS"
+            success "Hook config removed from settings.json"
+        else
+            rm -f "$CLAUDE_SETTINGS.tmp"
+            warn "Could not update settings.json with jq"
+        fi
     elif command -v python3 &> /dev/null; then
         python3 << 'PYTHON_SCRIPT'
-import json
-import os
-
+import json, os, re
 settings_path = os.path.expanduser("~/.claude/settings.json")
 try:
     with open(settings_path, 'r') as f:
         config = json.load(f)
     if 'hooks' in config and 'UserPromptSubmit' in config['hooks']:
-        del config['hooks']['UserPromptSubmit']
+        filtered = [e for e in config['hooks']['UserPromptSubmit'] if not any(
+            re.search(r'lucid|user-prompt-submit', h.get('command', ''))
+            for h in e.get('hooks', [])
+        )]
+        if filtered:
+            config['hooks']['UserPromptSubmit'] = filtered
+        else:
+            del config['hooks']['UserPromptSubmit']
         with open(settings_path, 'w') as f:
             json.dump(config, f, indent=2)
 except Exception:
@@ -226,7 +246,7 @@ except Exception:
 PYTHON_SCRIPT
         success "Hook config removed from settings.json"
     else
-        warn "Could not remove hook config - please remove 'UserPromptSubmit' from $CLAUDE_SETTINGS manually"
+        warn "Could not remove hook config - please remove Lucid hook from $CLAUDE_SETTINGS manually"
     fi
 fi
 

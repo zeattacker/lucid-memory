@@ -139,7 +139,21 @@ if (Test-Path $ClaudeSettings) {
     try {
         $Config = Get-Content $ClaudeSettings -Raw | ConvertFrom-Json
         if ($Config.hooks -and $Config.hooks.UserPromptSubmit) {
-            $Config.hooks.PSObject.Properties.Remove('UserPromptSubmit')
+            # Filter out only Lucid's hook entries, preserve others
+            $Remaining = @($Config.hooks.UserPromptSubmit | Where-Object {
+                $IsLucid = $false
+                if ($_.hooks) {
+                    foreach ($h in $_.hooks) {
+                        if ($h.command -and $h.command -match 'lucid|user-prompt-submit') { $IsLucid = $true }
+                    }
+                }
+                -not $IsLucid
+            })
+            if ($Remaining.Count -eq 0) {
+                $Config.hooks.PSObject.Properties.Remove('UserPromptSubmit')
+            } else {
+                $Config.hooks.UserPromptSubmit = $Remaining
+            }
             $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
             [System.IO.File]::WriteAllText($ClaudeSettings, ($Config | ConvertTo-Json -Depth 10), $Utf8NoBom)
         }
@@ -174,7 +188,7 @@ $RemoveModel = Read-Host "  Remove Ollama embedding model (nomic-embed-text)? [y
 if ($RemoveModel -match "^[Yy]$") {
     if (Get-Command ollama -ErrorAction SilentlyContinue) {
         Write-Info "Removing embedding model..."
-        ollama rm nomic-embed-text 2>$null
+        cmd /c "ollama rm nomic-embed-text 2>&1" | Out-Null
         Write-Success "Embedding model removed"
     }
 }
@@ -185,8 +199,12 @@ $TaskName = "LucidOllamaKeepAlive"
 $ExistingTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($ExistingTask) {
     Write-Info "Removing Ollama scheduled task..."
-    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-    Write-Success "Scheduled task removed"
+    try {
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Write-Success "Scheduled task removed"
+    } catch {
+        Write-Warn "Could not remove scheduled task (may need admin). Remove manually: Unregister-ScheduledTask -TaskName $TaskName"
+    }
 }
 
 # === Remove Lucid Directory ===
