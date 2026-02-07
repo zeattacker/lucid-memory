@@ -34,6 +34,9 @@ $MIN_DISK_SPACE = 5GB
 $script:TotalSteps = 8
 $script:CurrentStep = 0
 
+# Write UTF-8 without BOM (PS 5.1's -Encoding UTF8 adds a BOM that breaks JSON parsing)
+function Write-Utf8 { param($Path, $Content) [System.IO.File]::WriteAllText($Path, $Content, (New-Object System.Text.UTF8Encoding $false)) }
+
 # Colors for output
 function Write-Success { param($Message) Write-Host "✓ $Message" -ForegroundColor Green }
 function Write-Warn { param($Message) Write-Host "⚠️  $Message" -ForegroundColor Yellow }
@@ -215,11 +218,14 @@ Show-Progress  # Step 1: Pre-flight checks
 if ($NeedBun) {
     Write-Host "Installing Bun..."
     try {
-        irm bun.sh/install.ps1 | iex
+        irm https://bun.sh/install.ps1 | iex
         $env:PATH = "$env:USERPROFILE\.bun\bin;$env:PATH"
     } catch {
         Write-Fail "Bun installation failed" "Please install Bun manually: https://bun.sh"
     }
+}
+if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
+    Write-Fail "Bun is not available" "Bun installation may have failed. Please install manually: https://bun.sh"
 }
 $BunVersion = bun --version
 Write-Success "Bun $BunVersion"
@@ -431,7 +437,7 @@ if (-not $NativeReady -and (Test-Path "$LucidDir\native")) {
     Write-Host "Downloading pre-built native binary..."
     $NativeReleaseUrl = "https://github.com/JasonDocton/lucid-memory/releases/latest/download/$NativeBinary"
     try {
-        Invoke-WebRequest -Uri $NativeReleaseUrl -OutFile $NativeBinaryPath -ErrorAction Stop
+        Invoke-WebRequest -UseBasicParsing -Uri $NativeReleaseUrl -OutFile $NativeBinaryPath -ErrorAction Stop
         Write-Success "Downloaded native binary"
         $NativeReady = $true
     } catch {
@@ -486,7 +492,7 @@ if (-not $PerceptionReady -and (Test-Path "$LucidDir\perception")) {
     Write-Host "Downloading pre-built perception binary..."
     $PerceptionReleaseUrl = "https://github.com/JasonDocton/lucid-memory/releases/latest/download/$PerceptionBinary"
     try {
-        Invoke-WebRequest -Uri $PerceptionReleaseUrl -OutFile $PerceptionBinaryPath -ErrorAction Stop
+        Invoke-WebRequest -UseBasicParsing -Uri $PerceptionReleaseUrl -OutFile $PerceptionBinaryPath -ErrorAction Stop
         Write-Success "Downloaded perception binary"
         $PerceptionReady = $true
     } catch {
@@ -551,7 +557,7 @@ if (Test-Path "$LucidDir\perception") {
     }
 }
 
-$Pkg | ConvertTo-Json -Depth 10 | Out-File -FilePath $PkgPath -Encoding UTF8
+Write-Utf8 $PkgPath ($Pkg | ConvertTo-Json -Depth 10)
 
 Write-Host "Installing dependencies..."
 try {
@@ -596,7 +602,7 @@ switch ($EmbedChoice) {
         if (-not $OpenAIKey) {
             Write-Fail "OpenAI API key is required" "Please run the installer again and provide a valid API key,`nor choose option 1 for local embeddings."
         }
-        "OPENAI_API_KEY=$OpenAIKey" | Out-File -FilePath "$LucidDir\.env" -Encoding UTF8
+        Write-Utf8 "$LucidDir\.env" "OPENAI_API_KEY=$OpenAIKey"
         Write-Success "OpenAI configured"
     }
     default {
@@ -609,7 +615,7 @@ switch ($EmbedChoice) {
             try {
                 # Download and run Ollama installer
                 $OllamaInstaller = "$env:TEMP\OllamaSetup.exe"
-                Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $OllamaInstaller
+                Invoke-WebRequest -UseBasicParsing -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $OllamaInstaller
                 Start-Process -FilePath $OllamaInstaller -Wait
                 Remove-Item $OllamaInstaller -Force
 
@@ -688,7 +694,7 @@ if (-not (Test-Path $WhisperModel)) {
     Write-Host ""
     Write-Host "Downloading Whisper model for video transcription (74MB)..."
     try {
-        Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile $WhisperModel
+        Invoke-WebRequest -UseBasicParsing -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile $WhisperModel
         Write-Success "Whisper model downloaded"
     } catch {
         Write-Warn "Could not download Whisper model - video transcription will be unavailable"
@@ -715,7 +721,7 @@ $ConfigContent = @{
     autoUpdate = $AutoUpdate
     installedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 }
-$ConfigContent | ConvertTo-Json | Out-File -FilePath "$LucidDir\config.json" -Encoding UTF8
+Write-Utf8 "$LucidDir\config.json" ($ConfigContent | ConvertTo-Json)
 
 if ($AutoUpdate) {
     Write-Success "Auto-updates enabled"
@@ -745,10 +751,10 @@ if (Test-Path $McpConfig) {
         command = $ServerPath
         args = @()
     } -Force
-    $Config | ConvertTo-Json -Depth 10 | Out-File -FilePath $McpConfig -Encoding UTF8
+    Write-Utf8 $McpConfig ($Config | ConvertTo-Json -Depth 10)
 } else {
     # Create new config
-    @{
+    $NewConfig = @{
         mcpServers = @{
             "lucid-memory" = @{
                 type = "stdio"
@@ -756,7 +762,8 @@ if (Test-Path $McpConfig) {
                 args = @()
             }
         }
-    } | ConvertTo-Json -Depth 10 | Out-File -FilePath $McpConfig -Encoding UTF8
+    }
+    Write-Utf8 $McpConfig ($NewConfig | ConvertTo-Json -Depth 10)
 }
 
 Write-Success "MCP server configured"
@@ -806,7 +813,7 @@ try {
         }
     ) -Force
 
-    $Config | ConvertTo-Json -Depth 10 | Out-File -FilePath $ClaudeSettings -Encoding UTF8
+    Write-Utf8 $ClaudeSettings ($Config | ConvertTo-Json -Depth 10)
     Write-Success "Hook configured in settings.json"
 } catch {
     Write-Warn "Could not configure hook in settings.json - manual setup may be needed"

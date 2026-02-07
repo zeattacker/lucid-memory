@@ -121,7 +121,8 @@ if (Test-Path $McpConfig) {
         $Config = Get-Content $McpConfig | ConvertFrom-Json
         if ($Config.mcpServers -and $Config.mcpServers.'lucid-memory') {
             $Config.mcpServers.PSObject.Properties.Remove('lucid-memory')
-            $Config | ConvertTo-Json -Depth 10 | Out-File -FilePath $McpConfig -Encoding UTF8
+            $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText($McpConfig, ($Config | ConvertTo-Json -Depth 10), $Utf8NoBom)
         }
         Write-Success "MCP server config removed"
     } catch {
@@ -139,7 +140,8 @@ if (Test-Path $ClaudeSettings) {
         $Config = Get-Content $ClaudeSettings | ConvertFrom-Json
         if ($Config.hooks -and $Config.hooks.UserPromptSubmit) {
             $Config.hooks.PSObject.Properties.Remove('UserPromptSubmit')
-            $Config | ConvertTo-Json -Depth 10 | Out-File -FilePath $ClaudeSettings -Encoding UTF8
+            $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText($ClaudeSettings, ($Config | ConvertTo-Json -Depth 10), $Utf8NoBom)
         }
         Write-Success "Hook config removed from settings.json"
     } catch {
