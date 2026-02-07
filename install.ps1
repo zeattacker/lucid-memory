@@ -631,6 +631,24 @@ if ($BunExit -ne 0 -and -not (Test-Path "node_modules")) {
     Write-Fail "Failed to install dependencies" "Bun package installation failed.`n`nTry running manually:`n  cd $LucidDir\server && bun install"
 }
 
+# Verify workspace packages installed — if they failed (EPERM), remove the
+# file: references from package.json so Bun's resolver doesn't segfault
+$PkgFixNeeded = $false
+$Pkg2 = Get-Content $PkgPath -Raw | ConvertFrom-Json
+if ($Pkg2.dependencies.'@lucid-memory/native' -and -not (Test-Path "node_modules\@lucid-memory\native")) {
+    Write-Warn "Native package failed to install — using TypeScript fallback"
+    $Pkg2.dependencies.PSObject.Properties.Remove('@lucid-memory/native')
+    $PkgFixNeeded = $true
+}
+if ($Pkg2.dependencies.'@lucid-memory/perception' -and -not (Test-Path "node_modules\@lucid-memory\perception")) {
+    Write-Warn "Perception package failed to install — using fallback"
+    $Pkg2.dependencies.PSObject.Properties.Remove('@lucid-memory/perception')
+    $PkgFixNeeded = $true
+}
+if ($PkgFixNeeded) {
+    Write-Utf8 $PkgPath ($Pkg2 | ConvertTo-Json -Depth 10)
+}
+
 # Create CLI wrapper (batch file for Windows)
 # Use %USERPROFILE% (resolved at runtime) so non-ASCII usernames work
 Write-Utf8 "$LucidBin\lucid.cmd" "@echo off`r`nbun run `"%USERPROFILE%\.lucid\server\src\cli.ts`" %*`r`n"
