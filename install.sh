@@ -683,6 +683,8 @@ fi
 # Fallback: download zip archive if git clone fails
 if [ "$DOWNLOAD_OK" = false ]; then
     warn "Git clone failed, trying zip download..."
+    # Clean up partial git clone directory if it exists
+    rm -rf "lucid-memory" 2>/dev/null
     if curl -fsSL "https://github.com/JasonDocton/lucid-memory/archive/refs/heads/main.zip" -o "lucid-memory.zip" 2>/dev/null; then
         if command -v unzip &> /dev/null; then
             unzip -q "lucid-memory.zip" && mv "lucid-memory-main" "lucid-memory" && DOWNLOAD_OK=true

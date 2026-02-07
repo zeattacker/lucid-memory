@@ -15,6 +15,9 @@
 
 $ErrorActionPreference = "Stop"
 
+# Force TLS 1.2 — PS 5.1 defaults to TLS 1.0, but GitHub/npm/etc require TLS 1.2+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 # Catch unhandled errors so the window doesn't close before users can read them
 trap {
     Write-Host ""
@@ -387,6 +390,8 @@ try {
 # Method 2: Download zip archive (fallback if git clone fails)
 if (-not $DownloadOk) {
     Write-Warn "Git clone failed, trying zip download..."
+    # Clean up partial git clone directory if it exists
+    if (Test-Path "lucid-memory") { Remove-Item -Recurse -Force "lucid-memory" }
     try {
         $ZipUrl = "https://github.com/JasonDocton/lucid-memory/archive/refs/heads/main.zip"
         $ZipPath = Join-Path $TempDir "lucid-memory.zip"
