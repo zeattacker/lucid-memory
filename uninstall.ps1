@@ -1,7 +1,7 @@
 # Lucid Memory Uninstaller for Windows
 #
 # One-liner uninstall (run in PowerShell):
-#   irm lucidmemory.dev/uninstall.ps1 | iex
+#   irm https://lucidmemory.dev/uninstall.ps1 | iex
 #
 # What this does:
 #   1. Removes ~/.lucid directory
@@ -206,5 +206,5 @@ Write-Host "  ${DIM}  winget uninstall ffmpeg yt-dlp Ollama${NC}"
 Write-Host "  ${DIM}  pip uninstall openai-whisper${NC}"
 Write-Host ""
 Write-Host "  ${DIM}To reinstall:${NC}"
-Write-Host "  ${C4}irm lucidmemory.dev/install.ps1 | iex${NC}"
+Write-Host "  ${C4}irm https://lucidmemory.dev/install.ps1 | iex${NC}"
 Write-Host ""

@@ -1,7 +1,7 @@
 # Lucid Memory Installer for Windows
 #
 # One-liner installation (run in PowerShell as Administrator):
-#   irm lucidmemory.dev/install.ps1 | iex
+#   irm https://lucidmemory.dev/install.ps1 | iex
 #
 # What this does:
 #   1. Checks all prerequisites (git, disk space, etc.)
@@ -870,7 +870,7 @@ Write-Host "  ${C4}lucid status${NC}  - Check if everything is working"
 Write-Host "  ${C4}lucid stats${NC}   - View memory statistics"
 Write-Host ""
 Write-Host "  ${DIM}To uninstall:${NC}"
-Write-Host "  ${C4}irm lucidmemory.dev/uninstall.ps1 | iex${NC}"
+Write-Host "  ${C4}irm https://lucidmemory.dev/uninstall.ps1 | iex${NC}"
 Write-Host ""
 Write-Host "${DIM}  ─────────────────────────────────────────${NC}"
 Write-Host ""

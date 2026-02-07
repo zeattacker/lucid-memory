@@ -16,7 +16,7 @@ fi
 # Verify server script exists
 if [ ! -f "$SERVER_SCRIPT" ]; then
     echo "ERROR: Server script not found at $SERVER_SCRIPT" >&2
-    echo "Please reinstall Lucid Memory: curl -fsSL lucidmemory.dev/install | bash" >&2
+    echo "Please reinstall Lucid Memory: curl -fsSL https://lucidmemory.dev/install | bash" >&2
     exit 1
 fi
 RESTART_DELAY=2

@@ -3,7 +3,7 @@
 # Lucid Memory Uninstaller
 #
 # One-liner uninstall:
-#   curl -fsSL lucidmemory.dev/uninstall | bash
+#   curl -fsSL https://lucidmemory.dev/uninstall | bash
 #
 # What this does:
 #   1. Removes ~/.lucid directory
@@ -305,5 +305,5 @@ echo -e "  ${DIM}  macOS:   brew uninstall ffmpeg yt-dlp ollama${NC}"
 echo -e "  ${DIM}  pip:     pip uninstall openai-whisper${NC}"
 echo ""
 echo -e "  ${DIM}To reinstall:${NC}"
-echo -e "  ${C4}curl -fsSL lucidmemory.dev/install | bash${NC}"
+echo -e "  ${C4}curl -fsSL https://lucidmemory.dev/install | bash${NC}"
 echo ""

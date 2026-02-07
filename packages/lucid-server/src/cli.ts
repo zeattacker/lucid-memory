@@ -734,7 +734,7 @@ Examples:
 				)
 				console.log("")
 				console.log("You can update manually by running:")
-				console.log("  curl -fsSL lucidmemory.dev/install | bash")
+				console.log("  curl -fsSL https://lucidmemory.dev/install | bash")
 				process.exit(1)
 			}
 			break

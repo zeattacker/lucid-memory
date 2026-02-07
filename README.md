@@ -5,7 +5,7 @@
 Memory for AI that works like yours—local, instant, persistent.
 
 ```bash
-curl -fsSL lucidmemory.dev/install | bash
+curl -fsSL https://lucidmemory.dev/install | bash
 ```
 
 <div align="center">
@@ -188,14 +188,25 @@ when we were refactoring the middleware."
 
 **macOS / Linux:**
 ```bash
-curl -fsSL lucidmemory.dev/install | bash
+curl -fsSL https://lucidmemory.dev/install | bash
 ```
 
 <h4 id="windows">Windows (PowerShell as Administrator):</h4>
 
 ```powershell
-irm lucidmemory.dev/install.ps1 | iex
+irm https://lucidmemory.dev/install.ps1 | iex
 ```
+
+<details>
+<summary>Getting a redirect error?</summary>
+
+Older PowerShell versions (5.1) can't follow 308 redirects. Use the direct URL instead:
+
+```powershell
+irm https://raw.githubusercontent.com/JasonDocton/lucid-memory/main/install.ps1 | iex
+```
+
+</details>
 
 That's it. Your AI coding assistant now remembers across sessions.
 

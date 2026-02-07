@@ -15,7 +15,7 @@ if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
 # Verify server script exists
 if (-not (Test-Path $ServerScript)) {
     Write-Error "Server script not found at $ServerScript"
-    Write-Error "Please reinstall Lucid Memory: irm lucidmemory.dev/install.ps1 | iex"
+    Write-Error "Please reinstall Lucid Memory: irm https://lucidmemory.dev/install.ps1 | iex"
     exit 1
 }
 $RestartDelay = 2

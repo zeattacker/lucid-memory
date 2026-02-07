@@ -3,7 +3,7 @@
 # Lucid Memory Installer
 #
 # One-liner installation:
-#   curl -fsSL lucidmemory.dev/install | bash
+#   curl -fsSL https://lucidmemory.dev/install | bash
 #
 # What this does:
 #   1. Checks all prerequisites (git, disk space, etc.)
@@ -1504,7 +1504,7 @@ echo -e "  ${C4}lucid status${NC}  - Check if everything is working"
 echo -e "  ${C4}lucid stats${NC}   - View memory statistics"
 echo ""
 echo -e "  ${DIM}To uninstall:${NC}"
-echo -e "  ${C4}curl -fsSL lucidmemory.dev/uninstall | bash${NC}"
+echo -e "  ${C4}curl -fsSL https://lucidmemory.dev/uninstall | bash${NC}"
 echo ""
 echo -e "${DIM}  ─────────────────────────────────────────${NC}"
 echo ""
