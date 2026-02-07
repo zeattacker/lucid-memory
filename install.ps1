@@ -484,12 +484,14 @@ if (-not $NativeReady -and (Test-Path "$LucidDir\native")) {
     if (Get-Command cargo -ErrorAction SilentlyContinue) {
         Write-Host "Building native Rust module (this gives you 100x faster retrieval)..."
         Push-Location "$LucidDir\native"
-        try {
-            bun install 2>$null
-            bun run build 2>$null
+        $OldEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        bun install 2>&1 | Out-Null
+        bun run build 2>&1 | Out-Null
+        $ErrorActionPreference = $OldEAP
+        if ($LASTEXITCODE -eq 0) {
             $NativeReady = $true
             Write-Success "Native Rust module built"
-        } catch {
+        } else {
             Write-Warn "Native build failed"
         }
         Pop-Location
@@ -539,12 +541,14 @@ if (-not $PerceptionReady -and (Test-Path "$LucidDir\perception")) {
     if (Get-Command cargo -ErrorAction SilentlyContinue) {
         Write-Host "Building perception module (video processing)..."
         Push-Location "$LucidDir\perception"
-        try {
-            bun install 2>$null
-            bun run build 2>$null
+        $OldEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        bun install 2>&1 | Out-Null
+        bun run build 2>&1 | Out-Null
+        $ErrorActionPreference = $OldEAP
+        if ($LASTEXITCODE -eq 0) {
             $PerceptionReady = $true
             Write-Success "Perception module built"
-        } catch {
+        } else {
             Write-Warn "Perception build failed"
         }
         Pop-Location
@@ -594,11 +598,16 @@ if (Test-Path "$LucidDir\perception") {
 Write-Utf8 $PkgPath ($Pkg | ConvertTo-Json -Depth 10)
 
 Write-Host "Installing dependencies..."
-try {
-    bun install 2>$null
-    if (-not $?) { throw "bun install failed" }
-} catch {
-    Write-Fail "Failed to install dependencies" "Bun package installation failed. Check your internet connection."
+# Temporarily lower error preference — bun writes progress to stderr which
+# PS 5.1 converts to terminating errors when $ErrorActionPreference is Stop
+$OldEAP = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+bun install 2>&1 | Out-Host
+$BunExit = $LASTEXITCODE
+$ErrorActionPreference = $OldEAP
+
+if ($BunExit -ne 0 -and -not (Test-Path "node_modules")) {
+    Write-Fail "Failed to install dependencies" "Bun package installation failed.`n`nTry running manually:`n  cd $LucidDir\server && bun install"
 }
 
 # Create CLI wrapper (batch file for Windows)
