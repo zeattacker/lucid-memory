@@ -678,8 +678,22 @@ switch ($EmbedChoice) {
 
                 if ($DownloadOk -and (Test-Path $OllamaInstaller)) {
                     Write-Host "Installing Ollama (silent install)..."
-                    # /VERYSILENT skips the GUI wizard entirely
-                    $Proc = Start-Process -FilePath $OllamaInstaller -ArgumentList "/VERYSILENT" -Wait -PassThru
+                    # /VERYSILENT skips the GUI wizard, /SUPPRESSMSGBOXES suppresses dialogs,
+                    # /SP- skips "This will install..." prompt
+                    $Proc = Start-Process -FilePath $OllamaInstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /SP-" -PassThru
+                    # The Ollama installer auto-launches the desktop app after install,
+                    # which prevents the installer process from exiting. Poll and kill
+                    # the auto-launched app so the installer can complete.
+                    $WaitSec = 0
+                    while (-not $Proc.HasExited -and $WaitSec -lt 300) {
+                        Start-Sleep -Seconds 3
+                        $WaitSec += 3
+                        Get-Process | Where-Object { $_.ProcessName -like "*ollama*" -and $_.Id -ne $Proc.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
+                    }
+                    if (-not $Proc.HasExited) {
+                        Stop-Process -Id $Proc.Id -Force -ErrorAction SilentlyContinue
+                        throw "Installer timed out"
+                    }
                     if ($Proc.ExitCode -ne 0) {
                         throw "Installer exited with code $($Proc.ExitCode)"
                     }
@@ -696,22 +710,33 @@ switch ($EmbedChoice) {
 
         # Ensure Ollama is running
         Write-Host "Starting Ollama service..."
-        $OllamaProcess = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
+        # Check for both CLI ("ollama") and desktop app ("ollama app") processes
+        $OllamaProcess = Get-Process | Where-Object { $_.ProcessName -like "*ollama*" } | Select-Object -First 1
         if (-not $OllamaProcess) {
+            # Try CLI serve first
             Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 3
+            Start-Sleep -Seconds 5
         }
 
-        # Verify it's running
-        $Retries = 5
+        # Verify it's running (more retries for fresh installs)
+        $Retries = 15
         $OllamaRunning = $false
+        $TriedDesktopApp = $false
         while ($Retries -gt 0 -and -not $OllamaRunning) {
             try {
                 $null = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 2
                 $OllamaRunning = $true
             } catch {
-                Start-Sleep -Seconds 1
+                Start-Sleep -Seconds 2
                 $Retries--
+                # After a few retries, try launching the desktop app as fallback
+                if ($Retries -eq 10 -and -not $TriedDesktopApp) {
+                    $TriedDesktopApp = $true
+                    $OllamaAppPath = "$env:LOCALAPPDATA\Programs\Ollama\ollama app.exe"
+                    if (Test-Path $OllamaAppPath) {
+                        Start-Process -FilePath $OllamaAppPath -WindowStyle Minimized -ErrorAction SilentlyContinue
+                    }
+                }
             }
         }
 
