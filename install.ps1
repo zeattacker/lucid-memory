@@ -133,17 +133,28 @@ $NC = "$e[0m"
 $DIM = "$e[2m"
 $BOLD = "$e[1m"
 
-# Add Python user Scripts directories to PATH for detection (pip --user installs go here)
-# Windows: %APPDATA%\Python\PythonXX\Scripts
+# Add Python directories to PATH for detection
 $PythonVersions = @("313", "312", "311", "310", "39", "38")
 foreach ($pyver in $PythonVersions) {
+    # pip --user install location
     $PyScriptsPath = "$env:APPDATA\Python\Python$pyver\Scripts"
     if (Test-Path $PyScriptsPath) {
         $env:PATH = "$PyScriptsPath;$env:PATH"
+    }
+    # Per-user python.org install location (where pip itself lives)
+    $PyInstallPath = "$env:LOCALAPPDATA\Programs\Python\Python$pyver\Scripts"
+    if (Test-Path $PyInstallPath) {
+        $env:PATH = "$PyInstallPath;$env:PATH"
         break
     }
+    # System-wide install locations
+    foreach ($sysPath in @("C:\Python$pyver\Scripts", "C:\Program Files\Python$pyver\Scripts")) {
+        if (Test-Path $sysPath) {
+            $env:PATH = "$sysPath;$env:PATH"
+            break
+        }
+    }
 }
-# Also check the standard user site-packages location
 $PyUserScripts = "$env:APPDATA\Python\Scripts"
 if (Test-Path $PyUserScripts) {
     $env:PATH = "$PyUserScripts;$env:PATH"
@@ -155,7 +166,15 @@ $NeedFfmpeg = -not (Get-Command ffmpeg -ErrorAction SilentlyContinue)
 $NeedYtdlp = -not (Get-Command yt-dlp -ErrorAction SilentlyContinue)
 $NeedWhisper = -not (Get-Command whisper -ErrorAction SilentlyContinue)
 $NeedOllama = -not (Get-Command ollama -ErrorAction SilentlyContinue)
-$NeedPip = -not ((Get-Command pip -ErrorAction SilentlyContinue) -or (Get-Command pip3 -ErrorAction SilentlyContinue))
+$HasPip = (Get-Command pip -ErrorAction SilentlyContinue) -or (Get-Command pip3 -ErrorAction SilentlyContinue)
+if (-not $HasPip) {
+    # Fallback: check if Python can run pip as a module
+    try { python -m pip --version 2>&1 | Out-Null; $HasPip = $true } catch {}
+    if (-not $HasPip) {
+        try { py -m pip --version 2>&1 | Out-Null; $HasPip = $true } catch {}
+    }
+}
+$NeedPip = -not $HasPip
 
 if ($NeedBun) { $InstallList += "  ${C4}•${NC} Bun (JavaScript runtime)" }
 if ($NeedFfmpeg) { $InstallList += "  ${C4}•${NC} ffmpeg (video processing)" }
@@ -241,8 +260,16 @@ if ($NeedYtdlp) {
             pip3 install --user yt-dlp 2>&1 | Out-Null
             $YtdlpInstalled = $true
         } else {
-            winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
-            $YtdlpInstalled = $true
+            # Fallback: try pip as a Python module, then winget
+            $triedPip = $false
+            try { python -m pip install --user yt-dlp 2>&1 | Out-Null; $YtdlpInstalled = $true; $triedPip = $true } catch {}
+            if (-not $triedPip) {
+                try { py -m pip install --user yt-dlp 2>&1 | Out-Null; $YtdlpInstalled = $true; $triedPip = $true } catch {}
+            }
+            if (-not $triedPip) {
+                winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+                $YtdlpInstalled = $true
+            }
         }
         # Refresh PATH
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
@@ -282,6 +309,12 @@ if ($NeedWhisper) {
         } elseif (Get-Command pip -ErrorAction SilentlyContinue) {
             pip install --user openai-whisper 2>&1 | Out-Null
             $WhisperInstalled = $true
+        } else {
+            # Fallback: use pip as a Python module
+            try { python -m pip install --user openai-whisper 2>&1 | Out-Null; $WhisperInstalled = $true } catch {}
+            if (-not $WhisperInstalled) {
+                try { py -m pip install --user openai-whisper 2>&1 | Out-Null; $WhisperInstalled = $true } catch {}
+            }
         }
         # Refresh PATH
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
