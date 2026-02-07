@@ -30,6 +30,10 @@ trap {
 # Enable ANSI colors in Windows Terminal (PS 7+ only)
 if ($PSVersionTable.PSVersion.Major -ge 7) { $PSStyle.OutputRendering = 'Ansi' }
 
+# Detect if terminal supports ANSI escape codes
+# Windows Terminal sets WT_SESSION; ConEmu sets ConEmuANSI; PS 7+ always supports it
+$script:SupportsAnsi = ($env:WT_SESSION) -or ($env:ConEmuANSI -eq 'ON') -or ($PSVersionTable.PSVersion.Major -ge 7) -or ($env:TERM_PROGRAM)
+
 # Minimum disk space required (in bytes) - 5GB
 $MIN_DISK_SPACE = 5GB
 
@@ -54,43 +58,46 @@ function Write-Fail {
 }
 
 function Show-Banner {
-    $e = [char]27
-    $C1 = "$e[38;5;99m"   # Purple
-    $C2 = "$e[38;5;105m"  # Light purple
-    $C3 = "$e[38;5;111m"  # Purple-blue
-    $C4 = "$e[38;5;117m"  # Blue
-    $C5 = "$e[38;5;123m"  # Light blue
-    $C6 = "$e[38;5;159m"  # Cyan
-    $NC = "$e[0m"
-    $DIM = "$e[2m"
-
-    Write-Host ""
-    Write-Host "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
-    Write-Host "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
-    Write-Host "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
-    Write-Host "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
-    Write-Host "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
-    Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
-    Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
-    Write-Host ""
-    Write-Host "  ${DIM}Claude Code that remembers.${NC}"
+    if ($script:SupportsAnsi) {
+        $e = [char]27
+        $C1 = "$e[38;5;99m"; $C2 = "$e[38;5;105m"; $C3 = "$e[38;5;111m"
+        $C4 = "$e[38;5;117m"; $C5 = "$e[38;5;123m"; $C6 = "$e[38;5;159m"
+        $NC = "$e[0m"; $DIM = "$e[2m"
+        Write-Host ""
+        Write-Host "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
+        Write-Host "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
+        Write-Host "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+        Write-Host "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+        Write-Host "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
+        Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
+        Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
+        Write-Host ""
+        Write-Host "  ${DIM}Claude Code that remembers.${NC}"
+    } else {
+        Write-Host ""
+        Write-Host "  LUCID MEMORY" -ForegroundColor Cyan
+        Write-Host "  Claude Code that remembers." -ForegroundColor DarkGray
+    }
     Write-Host ""
 }
 
 function Show-Progress {
-    $e = [char]27
-    $C4 = "$e[38;5;117m"
-    $DIM = "$e[2m"
-    $NC = "$e[0m"
-
     $script:CurrentStep++
     $percent = [math]::Floor($script:CurrentStep * 100 / $script:TotalSteps)
     $filled = [math]::Floor($script:CurrentStep * 30 / $script:TotalSteps)
     $empty = 30 - $filled
 
-    $bar = "${C4}" + ("█" * $filled) + "${DIM}" + ("░" * $empty) + "${NC}"
-    Write-Host ""
-    Write-Host "    $bar ${DIM}${percent}%${NC}"
+    if ($script:SupportsAnsi) {
+        $e = [char]27
+        $C4 = "$e[38;5;117m"; $DIM = "$e[2m"; $NC = "$e[0m"
+        $bar = "${C4}" + ("█" * $filled) + "${DIM}" + ("░" * $empty) + "${NC}"
+        Write-Host ""
+        Write-Host "    $bar ${DIM}${percent}%${NC}"
+    } else {
+        $bar = ("#" * $filled) + ("-" * $empty)
+        Write-Host ""
+        Write-Host "    [$bar] ${percent}%" -ForegroundColor Cyan
+    }
     Write-Host ""
 }
 
@@ -139,11 +146,12 @@ if (Test-Path $McpConfig) {
 
 # === Detect what needs to be installed ===
 
-$e = [char]27
-$C4 = "$e[38;5;117m"
-$NC = "$e[0m"
-$DIM = "$e[2m"
-$BOLD = "$e[1m"
+if ($script:SupportsAnsi) {
+    $e = [char]27
+    $C4 = "$e[38;5;117m"; $NC = "$e[0m"; $DIM = "$e[2m"; $BOLD = "$e[1m"
+} else {
+    $C4 = ""; $NC = ""; $DIM = ""; $BOLD = ""
+}
 
 # Add Python directories to PATH for detection
 $PythonVersions = @("313", "312", "311", "310", "39", "38")
@@ -181,9 +189,11 @@ $NeedOllama = -not (Get-Command ollama -ErrorAction SilentlyContinue)
 $HasPip = (Get-Command pip -ErrorAction SilentlyContinue) -or (Get-Command pip3 -ErrorAction SilentlyContinue)
 if (-not $HasPip) {
     # Fallback: check if Python can run pip as a module
-    try { python -m pip --version 2>&1 | Out-Null; $HasPip = $true } catch {}
+    cmd /c "python -m pip --version 2>nul" | Out-Null
+    if ($LASTEXITCODE -eq 0) { $HasPip = $true }
     if (-not $HasPip) {
-        try { py -m pip --version 2>&1 | Out-Null; $HasPip = $true } catch {}
+        cmd /c "py -m pip --version 2>nul" | Out-Null
+        if ($LASTEXITCODE -eq 0) { $HasPip = $true }
     }
 }
 $NeedPip = -not $HasPip
@@ -236,7 +246,7 @@ if ($NeedBun) {
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
     Write-Fail "Bun is not available" "Bun installation may have failed. Please install manually: https://bun.sh"
 }
-$BunVersion = bun --version
+$BunVersion = cmd /c "bun --version 2>&1"
 Write-Success "Bun $BunVersion"
 
 # Install ffmpeg if needed
@@ -244,14 +254,10 @@ if ($NeedFfmpeg) {
     Write-Host "Installing ffmpeg..."
     $FfmpegInstalled = $false
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
-            $result = winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements 2>&1
-            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-            if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
-                $FfmpegInstalled = $true
-            }
-        } catch {
-            # winget might throw but still install
+        cmd /c 'winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements 2>&1'
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+            $FfmpegInstalled = $true
         }
     }
 
@@ -268,30 +274,29 @@ if ($NeedFfmpeg) {
 if ($NeedYtdlp) {
     Write-Host "Installing yt-dlp..."
     $YtdlpInstalled = $false
-    try {
-        if (Get-Command pip -ErrorAction SilentlyContinue) {
-            pip install --user yt-dlp 2>&1 | Out-Null
-            $YtdlpInstalled = $true
-        } elseif (Get-Command pip3 -ErrorAction SilentlyContinue) {
-            pip3 install --user yt-dlp 2>&1 | Out-Null
+    if (Get-Command pip -ErrorAction SilentlyContinue) {
+        cmd /c "pip install --user yt-dlp 2>&1" | Out-Null
+        $YtdlpInstalled = $LASTEXITCODE -eq 0
+    } elseif (Get-Command pip3 -ErrorAction SilentlyContinue) {
+        cmd /c "pip3 install --user yt-dlp 2>&1" | Out-Null
+        $YtdlpInstalled = $LASTEXITCODE -eq 0
+    } else {
+        # Fallback: try pip as a Python module, then winget
+        cmd /c "python -m pip install --user yt-dlp 2>&1" | Out-Null
+        if ($LASTEXITCODE -eq 0) {
             $YtdlpInstalled = $true
         } else {
-            # Fallback: try pip as a Python module, then winget
-            $triedPip = $false
-            try { python -m pip install --user yt-dlp 2>&1 | Out-Null; $YtdlpInstalled = $true; $triedPip = $true } catch {}
-            if (-not $triedPip) {
-                try { py -m pip install --user yt-dlp 2>&1 | Out-Null; $YtdlpInstalled = $true; $triedPip = $true } catch {}
-            }
-            if (-not $triedPip) {
-                winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+            cmd /c "py -m pip install --user yt-dlp 2>&1" | Out-Null
+            if ($LASTEXITCODE -eq 0) {
                 $YtdlpInstalled = $true
+            } elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+                cmd /c 'winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements 2>&1' | Out-Null
+                $YtdlpInstalled = $LASTEXITCODE -eq 0
             }
         }
-        # Refresh PATH
-        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-    } catch {
-        # Might throw but still install
     }
+    # Refresh PATH
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
 
     # Add Python Scripts to PATH for detection
     foreach ($pyver in @("313", "312", "311", "310", "39", "38")) {
@@ -316,21 +321,21 @@ if ($NeedWhisper) {
     if (-not $NeedPip) {
         Write-Host "Installing OpenAI Whisper (this may take a few minutes)..."
         $WhisperInstalled = $false
-        try {
-            if (Get-Command pip3 -ErrorAction SilentlyContinue) {
-                pip3 install --user openai-whisper 2>&1 | Out-Null
-                $WhisperInstalled = $true
-            } elseif (Get-Command pip -ErrorAction SilentlyContinue) {
-                pip install --user openai-whisper 2>&1 | Out-Null
-                $WhisperInstalled = $true
-            } else {
-                try { python -m pip install --user openai-whisper 2>&1 | Out-Null; $WhisperInstalled = $true } catch {}
-                if (-not $WhisperInstalled) {
-                    try { py -m pip install --user openai-whisper 2>&1 | Out-Null; $WhisperInstalled = $true } catch {}
-                }
+        if (Get-Command pip3 -ErrorAction SilentlyContinue) {
+            cmd /c "pip3 install --user openai-whisper 2>&1" | Out-Null
+            $WhisperInstalled = $LASTEXITCODE -eq 0
+        } elseif (Get-Command pip -ErrorAction SilentlyContinue) {
+            cmd /c "pip install --user openai-whisper 2>&1" | Out-Null
+            $WhisperInstalled = $LASTEXITCODE -eq 0
+        } else {
+            cmd /c "python -m pip install --user openai-whisper 2>&1" | Out-Null
+            if ($LASTEXITCODE -eq 0) { $WhisperInstalled = $true }
+            if (-not $WhisperInstalled) {
+                cmd /c "py -m pip install --user openai-whisper 2>&1" | Out-Null
+                if ($LASTEXITCODE -eq 0) { $WhisperInstalled = $true }
             }
-            $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        } catch {}
+        }
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "User")
 
         foreach ($pyver in @("313", "312", "311", "310", "39", "38")) {
             $PyScriptsPath = "$env:APPDATA\Python\Python$pyver\Scripts"
@@ -664,7 +669,7 @@ switch ($EmbedChoice) {
         Write-Host "Starting Ollama service..."
         $OllamaProcess = Get-Process -Name "ollama" -ErrorAction SilentlyContinue
         if (-not $OllamaProcess) {
-            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
+            Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 3
         }
 
@@ -707,9 +712,10 @@ switch ($EmbedChoice) {
 
         # Pull the embedding model
         Write-Host "Downloading embedding model (this may take a few minutes)..."
-        try {
-            ollama pull nomic-embed-text
-        } catch {
+        # Run via cmd /c — ollama writes download progress to stderr which
+        # triggers NativeCommandError in PS 5.1 with ErrorActionPreference=Stop
+        cmd /c "ollama pull nomic-embed-text 2>&1"
+        if ($LASTEXITCODE -ne 0) {
             Write-Fail "Failed to download embedding model" "Please try manually: ollama pull nomic-embed-text"
         }
         Write-Success "Embedding model ready"
@@ -777,13 +783,13 @@ if (Test-Path $McpConfig) {
     # Add our server to existing config
     $Config = Get-Content $McpConfig -Raw | ConvertFrom-Json
     if (-not $Config.mcpServers) {
-        $Config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue @{}
+        $Config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue (New-Object PSObject) -Force
     }
-    $Config.mcpServers | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue @{
+    $Config.mcpServers | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue ([PSCustomObject]@{
         type = "stdio"
         command = $ServerPath
         args = @()
-    } -Force
+    }) -Force
     Write-Utf8 $McpConfig ($Config | ConvertTo-Json -Depth 10)
 } else {
     # Create new config
@@ -828,17 +834,19 @@ try {
     if (Test-Path $ClaudeSettings) {
         $Config = Get-Content $ClaudeSettings -Raw | ConvertFrom-Json
     } else {
-        $Config = @{}
+        # Must use PSCustomObject, not @{} — PS 5.1 ConvertTo-Json on a
+        # Hashtable ignores NoteProperties added via Add-Member
+        $Config = New-Object PSObject
     }
 
     if (-not $Config.hooks) {
-        $Config | Add-Member -NotePropertyName "hooks" -NotePropertyValue @{} -Force
+        $Config | Add-Member -NotePropertyName "hooks" -NotePropertyValue (New-Object PSObject) -Force
     }
 
     $Config.hooks | Add-Member -NotePropertyName "UserPromptSubmit" -NotePropertyValue @(
-        @{
+        [PSCustomObject]@{
             hooks = @(
-                @{
+                [PSCustomObject]@{
                     type = "command"
                     command = "powershell -ExecutionPolicy Bypass -File `"$HookCommand`""
                 }
@@ -923,41 +931,37 @@ Show-Progress  # Step 8: Restart Claude Code
 
 # === Done! ===
 
-$e = [char]27
-$C1 = "$e[38;5;99m"
-$C2 = "$e[38;5;105m"
-$C3 = "$e[38;5;111m"
-$C4 = "$e[38;5;117m"
-$C5 = "$e[38;5;123m"
-$C6 = "$e[38;5;159m"
-$NC = "$e[0m"
-$DIM = "$e[2m"
-$GREEN = "$e[0;32m"
-$YELLOW = "$e[1;33m"
-$BOLD = "$e[1m"
-
-Write-Host ""
-Write-Host "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
-Write-Host "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
-Write-Host "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
-Write-Host "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
-Write-Host "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
-Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
-Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
-Write-Host ""
-Write-Host "       ${GREEN}✓${NC} ${BOLD}Installed Successfully!${NC}"
+if ($script:SupportsAnsi) {
+    $e = [char]27
+    $C1 = "$e[38;5;99m"; $C2 = "$e[38;5;105m"; $C3 = "$e[38;5;111m"
+    $C4 = "$e[38;5;117m"; $C5 = "$e[38;5;123m"; $C6 = "$e[38;5;159m"
+    $NC = "$e[0m"; $DIM = "$e[2m"; $GREEN = "$e[0;32m"; $YELLOW = "$e[1;33m"; $BOLD = "$e[1m"
+    Write-Host ""
+    Write-Host "${C1}  ██╗     ██╗   ██╗ ██████╗██╗██████╗ ${NC}"
+    Write-Host "${C2}  ██║     ██║   ██║██╔════╝██║██╔══██╗${NC}"
+    Write-Host "${C3}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    Write-Host "${C4}  ██║     ██║   ██║██║     ██║██║  ██║${NC}"
+    Write-Host "${C5}  ███████╗╚██████╔╝╚██████╗██║██████╔╝${NC}"
+    Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
+    Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
+    Write-Host ""
+    Write-Host "       ${GREEN}✓${NC} ${BOLD}Installed Successfully!${NC}"
+} else {
+    Write-Host ""
+    Write-Host "  LUCID MEMORY" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  ✓ Installed Successfully!" -ForegroundColor Green
+}
 Write-Host ""
 Write-Host "  Just use Claude Code normally - your memories"
 Write-Host "  build automatically over time."
 Write-Host ""
-Write-Host "  ${DIM}Troubleshooting:${NC}"
-Write-Host "  ${C4}lucid status${NC}  - Check if everything is working"
-Write-Host "  ${C4}lucid stats${NC}   - View memory statistics"
+Write-Host "  Troubleshooting:" -ForegroundColor DarkGray
+Write-Host "  lucid status" -ForegroundColor Cyan -NoNewline; Write-Host "  - Check if everything is working"
+Write-Host "  lucid stats" -ForegroundColor Cyan -NoNewline; Write-Host "   - View memory statistics"
 Write-Host ""
-Write-Host "  ${DIM}To uninstall:${NC}"
-Write-Host "  ${C4}irm https://lucidmemory.dev/uninstall.ps1 | iex${NC}"
+Write-Host "  To uninstall:" -ForegroundColor DarkGray
+Write-Host "  irm https://lucidmemory.dev/uninstall.ps1 | iex" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "${DIM}  ─────────────────────────────────────────${NC}"
-Write-Host ""
-Write-Host "  ${YELLOW}Note:${NC} Please restart your terminal to use the 'lucid' command."
+Write-Host "  Note: Please restart your terminal to use the 'lucid' command." -ForegroundColor Yellow
 Write-Host ""
