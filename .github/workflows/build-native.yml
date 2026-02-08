@@ -24,13 +24,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS (macos-latest is ARM64, can cross-compile to x64)
+          # macOS ARM64 (Apple Silicon)
           - os: macos-latest
             target: aarch64-apple-darwin
             name: darwin-arm64
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            name: darwin-x64
+
+          # macOS x64 omitted: ort-sys has no prebuilt ONNX Runtime for
+          # x86_64-apple-darwin. Intel Mac users fall back to TS engine.
 
           # Linux (x64 only - ARM64 cross-compile has issues with whisper-rs)
           - os: ubuntu-latest

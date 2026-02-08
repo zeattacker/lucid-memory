@@ -13,6 +13,8 @@ curl -fsSL https://lucidmemory.dev/install | bash
 <br><br>
 </div>
 
+**New in 0.5.1:** **Native Embeddings** — Zero external services. BGE-base-en-v1.5 runs in-process via ONNX Runtime. Ollama is no longer required. Existing embeddings auto-migrate on startup.
+
 **New in 0.5.0:** <a href="#episodic-memory">Episodic Memory</a> — Claude remembers not just what happened, but how it unfolded — reconstructing the story of your debugging session, not just the fix. "What was I working on before the auth refactor?" now has an answer.
 
 **New in 0.4.0:** <a href="#location-intuitions">Procedural Memory</a> — Claude learns your workflow, develops instincts, and creates muscle memory for actions. No more searching or directing Claude to common file locations - it just knows.

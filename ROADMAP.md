@@ -65,6 +65,24 @@ in isolation, and finally integrated it back with the mutex fix."
 
 ---
 
+## 0.5.1 — Native Embeddings
+
+**Status:** Shipped (2026-02-07)
+
+Replaced Ollama dependency with an in-process BGE-base-en-v1.5 embedding model via ONNX Runtime. Zero external services required for text/visual embeddings.
+
+### What Shipped
+
+| Component | Details |
+|-----------|---------|
+| ONNX inference | BGE-base-en-v1.5 FP16 via `ort` crate, 768-dim embeddings |
+| Auto-migration | Detects Ollama/OpenAI embeddings, re-embeds with native model on startup |
+| CLI status | `lucid status` shows pending migration count with time estimates |
+| Installer fixes | HuggingFace CDN downloads, partial download protection, no Ollama dependency |
+| Tests | 27 new embedding migration tests (190 total passing) |
+
+---
+
 ## 0.6.0 — Memory Consolidation
 
 **Status:** Planned

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-02-07
+
+### Added
+
+#### Native Embedding Engine
+
+Lucid Memory no longer depends on Ollama for text embeddings. A built-in BGE-base-en-v1.5 model runs via ONNX Runtime directly in-process — zero external services, same quality.
+
+**Key features:**
+
+- **In-process ONNX inference** — BGE-base-en-v1.5 FP16 model runs via `ort` crate. 768-dimensional embeddings with mean pooling + L2 normalization.
+- **Automatic migration** — On startup, detects Ollama/OpenAI embeddings and re-embeds them with the native model. Progress logged with time estimates.
+- **CLI status** — `lucid status` shows pending embedding migration count with text/visual breakdown.
+- **Embedding indexes** — New `idx_embeddings_model` and `idx_visual_embeddings_model` indexes for fast provider-based queries.
+
+#### Installer Improvements
+
+- Installers download BGE model directly from HuggingFace CDN (no GitHub release dependency)
+- Partial download protection: downloads to `.tmp`, renames on success
+- Progress bar visible for large model downloads
+- PowerShell `$ProgressPreference` optimization for 220MB download
+
+### Fixed
+
+- Removed Ollama as a required dependency from installers and uninstallers
+- Fixed build-native CI for BGE model download URLs (HuggingFace direct links)
+- Added model file validation step in CI release workflow
+- Fixed Clippy pedantic/nursery lint compliance in `embedding.rs`
+- Fixed disk space message accuracy in installer
+
 ## [0.5.0] - 2026-02-04
 
 ### Added

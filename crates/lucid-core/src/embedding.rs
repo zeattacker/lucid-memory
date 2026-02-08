@@ -3,11 +3,11 @@
 //! Runs BGE-base directly via ONNX Runtime — no external services needed.
 //! Produces 768-dimensional embeddings with mean pooling + L2 normalization.
 
-use ndarray::Array2;
+use ndarray::{Array2, ArrayD};
 use ort::session::Session;
 use ort::value::Tensor;
+use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use tokenizers::Tokenizer;
 
 /// Default model directory: `~/.lucid/models`
@@ -38,6 +38,9 @@ impl Default for EmbeddingModelConfig {
 }
 
 /// In-process embedding model using ONNX Runtime.
+///
+/// Thread-safe: wraps `ort::Session` in a `Mutex` since `Session::run`
+/// requires `&mut self`. The lock is held only during ONNX inference.
 pub struct EmbeddingModel {
 	session: Mutex<Session>,
 	tokenizer: Tokenizer,
@@ -61,10 +64,6 @@ pub enum EmbeddingError {
 	/// Shape error from ndarray.
 	#[error("Shape error: {0}")]
 	Shape(#[from] ndarray::ShapeError),
-
-	/// Session mutex was poisoned (a previous thread panicked while holding the lock).
-	#[error("Session lock poisoned: {0}")]
-	MutexPoisoned(String),
 }
 
 impl EmbeddingModel {
@@ -116,10 +115,7 @@ impl EmbeddingModel {
 	/// Check whether model files exist at the given (or default) paths.
 	pub fn is_available(config: &EmbeddingModelConfig) -> bool {
 		let default = EmbeddingModelConfig::default();
-		let model_path = config
-			.model_path
-			.as_ref()
-			.or(default.model_path.as_ref());
+		let model_path = config.model_path.as_ref().or(default.model_path.as_ref());
 		let tokenizer_path = config
 			.tokenizer_path
 			.as_ref()
@@ -141,6 +137,33 @@ impl EmbeddingModel {
 			.ok_or_else(|| EmbeddingError::Tokenizer("empty batch result".into()))
 	}
 
+	/// Run ONNX inference and return the owned output array.
+	///
+	/// Locks the session mutex only for the duration of the inference call,
+	/// extracting owned data before the lock is released.
+	///
+	/// # Errors
+	///
+	/// Returns an error if the session lock is poisoned or inference fails.
+	fn run_inference(
+		&self,
+		input_ids_tensor: Tensor<i64>,
+		attention_mask_tensor: Tensor<i64>,
+		token_type_tensor: Tensor<i64>,
+	) -> Result<(ArrayD<f32>, usize), EmbeddingError> {
+		let mut session = self.session.lock();
+		let outputs = session.run(ort::inputs![
+			"input_ids" => input_ids_tensor,
+			"attention_mask" => attention_mask_tensor,
+			"token_type_ids" => token_type_tensor,
+		])?;
+		let view = outputs[0]
+			.try_extract_array::<f32>()
+			.map_err(EmbeddingError::Ort)?;
+		let dim = view.shape().last().copied().unwrap_or(768);
+		Ok((view.into_owned(), dim))
+	}
+
 	/// Embed a batch of texts. Pads to max length in the batch for a single ONNX run.
 	///
 	/// # Errors
@@ -156,7 +179,11 @@ impl EmbeddingModel {
 			.encode_batch(texts.to_vec(), true)
 			.map_err(|e| EmbeddingError::Tokenizer(e.to_string()))?;
 
-		let max_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap_or(0);
+		let max_len = encodings
+			.iter()
+			.map(|e| e.get_ids().len())
+			.max()
+			.unwrap_or(0);
 		let batch_size = encodings.len();
 
 		// Build padded input tensors
@@ -174,50 +201,40 @@ impl EmbeddingModel {
 			for (j, &m) in mask.iter().enumerate() {
 				attention_mask[offset + j] = i64::from(m);
 			}
-			// token_type_ids stay 0 for single-sentence inputs
 		}
 
 		let input_ids_arr = Array2::from_shape_vec([batch_size, max_len], input_ids)?;
-		let attention_mask_arr = Array2::from_shape_vec([batch_size, max_len], attention_mask.clone())?;
+		let attention_mask_arr =
+			Array2::from_shape_vec([batch_size, max_len], attention_mask.clone())?;
 		let token_type_arr = Array2::from_shape_vec([batch_size, max_len], token_type_ids)?;
 
 		let input_ids_tensor = Tensor::from_array(input_ids_arr)?;
 		let attention_mask_tensor = Tensor::from_array(attention_mask_arr)?;
 		let token_type_tensor = Tensor::from_array(token_type_arr)?;
 
-		// Hold the session lock only for inference + extraction, release before pooling
-		let (hidden_states, hidden_dim) = {
-			let mut session = self
-				.session
-				.lock()
-				.map_err(|e| EmbeddingError::MutexPoisoned(e.to_string()))?;
-			let outputs = session.run(ort::inputs![
-				"input_ids" => input_ids_tensor,
-				"attention_mask" => attention_mask_tensor,
-				"token_type_ids" => token_type_tensor,
-			])?;
-			// BGE outputs: last_hidden_state [batch, seq_len, 768]
-			let output_view = outputs[0]
-				.try_extract_array::<f32>()
-				.map_err(EmbeddingError::Ort)?;
-			let dim = output_view.shape().last().copied().unwrap_or(768);
-			(output_view.to_owned(), dim)
-		};
+		// Run ONNX inference (lock scoped to run_inference)
+		let (output_array, hidden_dim) =
+			self.run_inference(input_ids_tensor, attention_mask_tensor, token_type_tensor)?;
 
+		// Mean pooling + L2 normalization (no lock held)
 		let mut results = Vec::with_capacity(batch_size);
 
 		for i in 0..batch_size {
-			let seq_len = encodings[i].get_attention_mask().iter().filter(|&&m| m == 1).count();
+			let seq_len = encodings[i]
+				.get_attention_mask()
+				.iter()
+				.filter(|&&m| m == 1)
+				.count();
 
-			// Mean pooling over non-padding tokens
 			let mut pooled = vec![0.0f32; hidden_dim];
 			for t in 0..seq_len {
 				for d in 0..hidden_dim {
-					pooled[d] += hidden_states[[i, t, d]];
+					pooled[d] += output_array[[i, t, d]];
 				}
 			}
 			if seq_len > 0 {
-				let divisor = seq_len as f32;
+				// Lossless conversion: token counts fit in u16, and u16→f32 is exact
+				let divisor = f32::from(u16::try_from(seq_len).unwrap_or(u16::MAX));
 				for v in &mut pooled {
 					*v /= divisor;
 				}
@@ -239,7 +256,7 @@ impl EmbeddingModel {
 
 	/// Returns the model name.
 	#[must_use]
-	pub fn model_name(&self) -> &str {
+	pub const fn model_name(&self) -> &'static str {
 		"bge-base-en-v1.5"
 	}
 
@@ -262,6 +279,7 @@ pub fn model_dir() -> PathBuf {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
 	use super::*;
 
@@ -287,7 +305,7 @@ mod tests {
 	// Integration tests require actual model files — run with:
 	// cargo test --features embedding -- --ignored
 	#[test]
-	#[ignore]
+	#[ignore = "requires model files on disk"]
 	fn test_embed_single() {
 		let model =
 			EmbeddingModel::load(&EmbeddingModelConfig::default()).expect("Failed to load model");
@@ -300,7 +318,7 @@ mod tests {
 	}
 
 	#[test]
-	#[ignore]
+	#[ignore = "requires model files on disk"]
 	fn test_embed_batch() {
 		let model =
 			EmbeddingModel::load(&EmbeddingModelConfig::default()).expect("Failed to load model");

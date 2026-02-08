@@ -578,6 +578,10 @@ pub struct JsEmbeddingResult {
 ///
 /// Call this once at startup. Subsequent calls are no-ops.
 /// Returns true if the model is loaded (or was already loaded).
+///
+/// # Errors
+///
+/// Returns an error if model files are missing or ONNX Runtime fails to load.
 #[napi]
 pub fn load_embedding_model(
 	model_path: Option<String>,
@@ -623,6 +627,10 @@ pub fn is_embedding_model_available(
 }
 
 /// Embed a single text. Returns { vector, model, dimensions }.
+///
+/// # Errors
+///
+/// Returns an error if the model is not loaded or embedding fails.
 #[napi]
 pub fn embed(text: String) -> napi::Result<JsEmbeddingResult> {
 	let model = EMBEDDING_MODEL.get().ok_or_else(|| {
@@ -641,6 +649,10 @@ pub fn embed(text: String) -> napi::Result<JsEmbeddingResult> {
 }
 
 /// Embed a batch of texts.
+///
+/// # Errors
+///
+/// Returns an error if the model is not loaded or embedding fails.
 #[napi]
 pub fn embed_batch(texts: Vec<String>) -> napi::Result<Vec<JsEmbeddingResult>> {
 	let model = EMBEDDING_MODEL.get().ok_or_else(|| {
