@@ -9,9 +9,11 @@ curl -fsSL https://lucidmemory.dev/install | bash
 ```
 
 <div align="center">
-<sub>Works with Claude Code & OpenAI Codex · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
+<sub>Works with Claude Code, OpenAI Codex & OpenCode · macOS & Linux · <a href="#windows">Windows instructions</a></sub>
 <br><br>
 </div>
+
+**New in 0.5.2:** **OpenCode Support** — Lucid Memory now works with [OpenCode](https://github.com/sst/opencode). Automatic context injection via plugin hooks, continuous memory encoding, and full install/uninstall support. Choose any combination of Claude Code, Codex, and OpenCode during installation.
 
 **New in 0.5.1:** **Native Embeddings** — Zero external services. BGE-base-en-v1.5 runs in-process via ONNX Runtime. Ollama is no longer required. Existing embeddings auto-migrate on startup.
 
@@ -218,32 +220,33 @@ That's it. Your AI coding assistant now remembers across sessions.
 1. Checks prerequisites (git, disk space)
 2. Installs Bun runtime if needed
 3. Downloads BGE embedding model for local semantic search (or OpenAI API)
-4. Lets you choose which clients to configure (Claude Code, Codex, or both)
+4. Lets you choose which clients to configure (Claude Code, Codex, OpenCode — any combination)
 5. Optionally configures database isolation (shared, per-client, or custom profiles)
 6. Configures MCP settings for your chosen clients
-7. Installs hooks for automatic memory capture
-8. Restarts Claude Code to activate
+7. Installs hooks and plugins for automatic memory capture
+8. Restarts Claude Code to activate (if selected)
 
-**Requirements:** 5GB free disk space, Claude Code and/or Codex CLI installed
+**Requirements:** 5GB free disk space, at least one supported client installed (Claude Code, Codex, or OpenCode)
 
 </details>
 
 <details>
 <summary><b>Multi-client configuration</b></summary>
 
-Lucid Memory supports both Claude Code and OpenAI Codex. During installation, you can choose:
+Lucid Memory supports Claude Code, OpenAI Codex, and OpenCode. During installation, you can choose any combination.
 
 **Database modes:**
 - **Shared** (default) — All clients share the same memory database
-- **Per-client** — Each client gets its own database (`memory-claude.db`, `memory-codex.db`)
+- **Per-client** — Each client gets its own database (`memory-claude.db`, `memory-codex.db`, `memory-opencode.db`)
 - **Profiles** — Custom named databases for different contexts (e.g., work vs personal)
 
 **Managing configuration:**
 ```bash
-lucid config show                      # View current configuration
-lucid config set-mode per-client       # Switch to per-client databases
-lucid config create-profile work       # Create a new profile
-lucid config set-profile codex work    # Assign Codex to use the work profile
+lucid config show                         # View current configuration
+lucid config set-mode per-client          # Switch to per-client databases
+lucid config create-profile work          # Create a new profile
+lucid config set-profile codex work       # Assign Codex to use the work profile
+lucid config set-profile opencode work    # Assign OpenCode to use the work profile
 ```
 
 **Environment variable:**

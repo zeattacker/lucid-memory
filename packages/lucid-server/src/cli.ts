@@ -846,7 +846,7 @@ Examples:
   lucid backup --output=~/my-backup.db
 
 Multi-Client Support:
-  Set LUCID_CLIENT env var to switch between clients (claude, codex).
+  Set LUCID_CLIENT env var to switch between clients (claude, codex, opencode).
   Use 'lucid config' commands to manage profiles and database isolation.
 
 Visual memories are automatically created when images/videos are shared.

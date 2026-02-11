@@ -115,7 +115,11 @@ let nativeEmbedding: {
 		modelPath?: string | null,
 		tokenizerPath?: string | null
 	) => boolean
-	embed: (text: string) => { vector: number[]; model: string; dimensions: number }
+	embed: (text: string) => {
+		vector: number[]
+		model: string
+		dimensions: number
+	}
 	embedBatch: (
 		texts: string[]
 	) => Array<{ vector: number[]; model: string; dimensions: number }>

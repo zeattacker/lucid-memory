@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-02-10
+
+### Added
+
+#### OpenCode Support
+
+Lucid Memory now supports [OpenCode](https://github.com/sst/opencode) as a third AI coding client alongside Claude Code and OpenAI Codex.
+
+**Plugin integration:**
+
+- **Automatic context injection** — OpenCode's `experimental.chat.system.transform` hook injects relevant memories into every LLM system prompt, matching Claude Code's hook-based integration.
+- **Continuous encoding** — Conversation messages are stored as memories on `session.idle`, building memory over time.
+- **Compaction survival** — Memories are injected during session compaction so they persist across long conversations.
+- **Environment isolation** — `LUCID_CLIENT=opencode` set via `shell.env` hook for per-client database routing.
+
+**Installer improvements:**
+
+- Multi-client selection UI — choose any combination of Claude Code, Codex, and OpenCode during installation (replaces the old radio-button Claude/Codex/Both selector).
+- Full install/uninstall support on both macOS/Linux (bash) and Windows (PowerShell).
+- OpenCode MCP config uses correct schema: `mcp` key, `local` type, array command, `environment` key.
+- Plugin automatically copied to `~/.config/opencode/plugins/` during installation.
+
+### Fixed
+
+- Claude Code restart no longer runs unconditionally when only Codex or OpenCode is selected
+- Profile name input now sanitized to `[a-zA-Z0-9_-]` to prevent invalid JSON in config
+
+### Security
+
+- OpenCode plugin uses `execFileSync`/`execFile` instead of `execSync` to prevent command injection via shell interpolation
+
 ## [0.5.1] - 2026-02-07
 
 ### Added

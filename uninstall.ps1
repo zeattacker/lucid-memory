@@ -62,6 +62,12 @@ $LucidDir = "$env:USERPROFILE\.lucid"
 $ClaudeSettingsDir = "$env:USERPROFILE\.claude"
 # Claude Code uses ~/.claude.json for MCP servers
 $McpConfig = "$env:USERPROFILE\.claude.json"
+# Codex uses ~/.codex/config.toml
+$CodexDir = "$env:USERPROFILE\.codex"
+$CodexConfig = "$CodexDir\config.toml"
+# OpenCode uses ~/.config/opencode/opencode.json
+$OpenCodeConfigDir = "$env:USERPROFILE\.config\opencode"
+$OpenCodeConfig = "$OpenCodeConfigDir\opencode.json"
 
 # Check if Lucid is installed
 if (-not (Test-Path $LucidDir)) {
@@ -82,6 +88,18 @@ if ((Test-Path $McpConfig) -and (Select-String -Path $McpConfig -Pattern "lucid-
 $ClaudeSettings = "$ClaudeSettingsDir\settings.json"
 if ((Test-Path $ClaudeSettings) -and (Select-String -Path $ClaudeSettings -Pattern "UserPromptSubmit" -Quiet)) {
     $RemoveList += "  ${C4}•${NC} Hook config from ~/.claude/settings.json"
+}
+
+if ((Test-Path $CodexConfig) -and (Select-String -Path $CodexConfig -Pattern "lucid-memory" -Quiet)) {
+    $RemoveList += "  ${C4}•${NC} MCP server config from ~/.codex/config.toml"
+}
+
+if ((Test-Path $OpenCodeConfig) -and (Select-String -Path $OpenCodeConfig -Pattern "lucid-memory" -Quiet)) {
+    $RemoveList += "  ${C4}•${NC} MCP server config from opencode.json"
+}
+
+if (Test-Path "$OpenCodeConfigDir\plugins\lucid-memory.ts") {
+    $RemoveList += "  ${C4}•${NC} OpenCode plugin"
 }
 
 # Check for PATH entry
@@ -122,6 +140,52 @@ if (Test-Path $McpConfig) {
     } catch {
         Write-Warn "Could not edit MCP config - please remove 'lucid-memory' manually"
     }
+}
+
+# === Remove Codex Config ===
+
+if (Test-Path $CodexConfig) {
+    if (Select-String -Path $CodexConfig -Pattern '^\[mcp_servers\.lucid-memory\]' -Quiet) {
+        Write-Info "Removing Codex MCP configuration..."
+        $Lines = Get-Content $CodexConfig
+        $NewLines = @()
+        $Skip = $false
+        foreach ($line in $Lines) {
+            if ($line -match '^\[mcp_servers\.lucid-memory\]') { $Skip = $true; continue }
+            if ($line -match '^\[' -and $Skip) { $Skip = $false }
+            if (-not $Skip) { $NewLines += $line }
+        }
+        $NewLines | Set-Content $CodexConfig
+        Write-Success "Codex MCP config removed"
+    }
+
+    if (Select-String -Path $CodexConfig -Pattern "codex-notify" -Quiet) {
+        $Lines = Get-Content $CodexConfig | Where-Object { $_ -notmatch "codex-notify" }
+        $Lines | Set-Content $CodexConfig
+        Write-Success "Codex notify hook removed"
+    }
+}
+
+# === Remove OpenCode Config ===
+
+if ((Test-Path $OpenCodeConfig) -and (Select-String -Path $OpenCodeConfig -Pattern "lucid-memory" -Quiet)) {
+    Write-Info "Removing OpenCode MCP configuration..."
+    try {
+        $OcConfig = Get-Content $OpenCodeConfig -Raw | ConvertFrom-Json
+        if ($OcConfig.mcp -and $OcConfig.mcp.'lucid-memory') {
+            $OcConfig.mcp.PSObject.Properties.Remove('lucid-memory')
+            $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+            [System.IO.File]::WriteAllText($OpenCodeConfig, ($OcConfig | ConvertTo-Json -Depth 10), $Utf8NoBom)
+        }
+        Write-Success "OpenCode MCP config removed"
+    } catch {
+        Write-Warn "Could not edit OpenCode config - please remove 'lucid-memory' manually"
+    }
+}
+
+if (Test-Path "$OpenCodeConfigDir\plugins\lucid-memory.ts") {
+    Remove-Item -Force "$OpenCodeConfigDir\plugins\lucid-memory.ts"
+    Write-Success "OpenCode plugin removed"
 }
 
 # === Remove Hooks ===

@@ -11,14 +11,14 @@
  * 4. Include failure cases where we SHOULD struggle
  */
 
+import { existsSync, unlinkSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
 	cosineSimilarityBatch,
 	type JsAssociation,
 	retrieve,
 } from "../../packages/lucid-native/index.js"
-import { existsSync, unlinkSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { LucidRetrieval } from "../../packages/lucid-server/src/retrieval.ts"
 
 const VERBOSE = process.argv.includes("--verbose")
@@ -714,7 +714,9 @@ const longTermDecay: RealisticScenario = {
 // retrieveTemporalNeighbors) because directional temporal queries require
 // the episodic pipeline, not just the Rust similarity engine.
 // ============================================================================
-const episodeRetrieval: RealisticScenario & { runFullPipeline?: () => Promise<EvalResult> } = {
+const episodeRetrieval: RealisticScenario & {
+	runFullPipeline?: () => Promise<EvalResult>
+} = {
 	name: "episode_retrieval",
 	description:
 		"Query: 'What was I working on before the auth refactor?' - requires temporal sequence",
@@ -731,7 +733,11 @@ const episodeRetrieval: RealisticScenario & { runFullPipeline?: () => Promise<Ev
 			metadata: [{ name: "unused", expectedRelevance: 0 }],
 		}
 	},
-	evaluate: () => ({ score: 0, maxScore: 1, details: "N/A — uses full pipeline" }),
+	evaluate: () => ({
+		score: 0,
+		maxScore: 1,
+		details: "N/A — uses full pipeline",
+	}),
 	runFullPipeline: async () => {
 		const dbPath = join(tmpdir(), `lucid-bench-episode-${Date.now()}.db`)
 		const cleanup = () => {
@@ -748,36 +754,66 @@ const episodeRetrieval: RealisticScenario & { runFullPipeline?: () => Promise<Ev
 			const projectId = "bench-episode"
 
 			// Phase 1: Bug investigation (the "before" we want to find)
-			await retrieval.store("Investigated memory leak in user-service, found connection pool not closing", {
-				type: "bug", projectId, tags: ["user-service", "memory-leak"],
-			})
+			await retrieval.store(
+				"Investigated memory leak in user-service, found connection pool not closing",
+				{
+					type: "bug",
+					projectId,
+					tags: ["user-service", "memory-leak"],
+				}
+			)
 			await sleep(50)
 
-			await retrieval.store("Traced the leak to session-handler.ts, pool.release() missing in error path", {
-				type: "bug", projectId, tags: ["session-handler", "pool"],
-			})
+			await retrieval.store(
+				"Traced the leak to session-handler.ts, pool.release() missing in error path",
+				{
+					type: "bug",
+					projectId,
+					tags: ["session-handler", "pool"],
+				}
+			)
 			await sleep(50)
 
-			await retrieval.store("Checked user-tests.ts to see if connection cleanup was covered - it was not", {
-				type: "context", projectId, tags: ["testing", "coverage"],
-			})
+			await retrieval.store(
+				"Checked user-tests.ts to see if connection cleanup was covered - it was not",
+				{
+					type: "context",
+					projectId,
+					tags: ["testing", "coverage"],
+				}
+			)
 			await sleep(50)
 
 			// Phase 2: The "anchor" event - auth refactor
-			await retrieval.store("Refactored auth module to use centralized token management instead of per-request tokens", {
-				type: "decision", projectId, tags: ["auth", "refactor"],
-			})
+			await retrieval.store(
+				"Refactored auth module to use centralized token management instead of per-request tokens",
+				{
+					type: "decision",
+					projectId,
+					tags: ["auth", "refactor"],
+				}
+			)
 			await sleep(50)
 
 			// Phase 3: After auth refactor (should NOT be returned for "before" query)
-			await retrieval.store("Updated auth middleware to use the new token manager", {
-				type: "learning", projectId, tags: ["auth", "middleware"],
-			})
+			await retrieval.store(
+				"Updated auth middleware to use the new token manager",
+				{
+					type: "learning",
+					projectId,
+					tags: ["auth", "middleware"],
+				}
+			)
 			await sleep(50)
 
-			await retrieval.store("Added integration tests for the new auth token flow", {
-				type: "context", projectId, tags: ["auth", "testing"],
-			})
+			await retrieval.store(
+				"Added integration tests for the new auth token flow",
+				{
+					type: "context",
+					projectId,
+					tags: ["auth", "testing"],
+				}
+			)
 
 			// Query: "What was I working on before the auth refactor?"
 			const results = await retrieval.retrieveTemporalNeighbors(
@@ -793,8 +829,10 @@ const episodeRetrieval: RealisticScenario & { runFullPipeline?: () => Promise<Ev
 			let beforeFound = 0
 			let afterFound = 0
 			for (const content of resultContents) {
-				if (beforeKeywords.some((kw) => content.toLowerCase().includes(kw))) beforeFound++
-				if (afterKeywords.some((kw) => content.toLowerCase().includes(kw))) afterFound++
+				if (beforeKeywords.some((kw) => content.toLowerCase().includes(kw)))
+					beforeFound++
+				if (afterKeywords.some((kw) => content.toLowerCase().includes(kw)))
+					afterFound++
 			}
 
 			let score = 0
@@ -1020,7 +1058,9 @@ const weakEncodingRetrieval: RealisticScenario = {
 // Run all scenarios
 // ============================================================================
 
-const scenarios: (RealisticScenario & { runFullPipeline?: () => Promise<EvalResult> })[] = [
+const scenarios: (RealisticScenario & {
+	runFullPipeline?: () => Promise<EvalResult>
+})[] = [
 	morningContextRestoration,
 	scaleNeedleInHaystack,
 	recencyVsSimilarity,

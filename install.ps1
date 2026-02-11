@@ -72,11 +72,11 @@ function Show-Banner {
         Write-Host "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
         Write-Host "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
         Write-Host ""
-        Write-Host "  ${DIM}Claude Code that remembers.${NC}"
+        Write-Host "  ${DIM}AI coding assistants that remember.${NC}"
     } else {
         Write-Host ""
         Write-Host "  LUCID MEMORY" -ForegroundColor Cyan
-        Write-Host "  Claude Code that remembers." -ForegroundColor DarkGray
+        Write-Host "  AI coding assistants that remember." -ForegroundColor DarkGray
     }
     Write-Host ""
 }
@@ -113,10 +113,12 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Fail "Git is not installed" "Please install Git first: https://git-scm.com/download/win"
 }
 
-# Check for Claude Code (required, cannot auto-install)
+# Check for Claude Code (optional - user may install for other clients only)
 $ClaudeSettingsDir = "$env:USERPROFILE\.claude"
 if (-not (Test-Path $ClaudeSettingsDir)) {
-    Write-Fail "Claude Code not found" "Please install Claude Code first: https://claude.ai/download`n`nAfter installing, run this installer again."
+    Write-Warn "Claude Code not found ($ClaudeSettingsDir does not exist)"
+    Write-Host "  If you plan to use Claude Code, install it first: https://claude.ai/download"
+    Write-Host ""
 }
 
 # Check disk space
@@ -677,7 +679,86 @@ if ($OpenAIKey) {
 } else {
     Write-Success "Using built-in BGE embeddings (recommended)"
 }
-Show-Progress  # Step 5: Embedding provider
+# === Client Selection ===
+
+Write-Host ""
+Write-Host "${BOLD}Which AI coding assistants do you use?${NC}"
+Write-Host "  [1] Claude Code"
+Write-Host "  [2] OpenAI Codex"
+Write-Host "  [3] OpenCode"
+Write-Host ""
+Write-Host "  Enter numbers separated by spaces (e.g. '1 3')"
+Write-Host "  Press Enter for all clients."
+Write-Host ""
+
+$ClientInput = Read-Host "Choice"
+if (-not $ClientInput) { $ClientInput = "1 2 3" }
+
+$InstallClaude = $false
+$InstallCodex = $false
+$InstallOpenCode = $false
+$ValidSelection = $false
+
+foreach ($num in $ClientInput.Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
+    switch ($num) {
+        "1" { $InstallClaude = $true; $ValidSelection = $true }
+        "2" { $InstallCodex = $true; $ValidSelection = $true }
+        "3" { $InstallOpenCode = $true; $ValidSelection = $true }
+    }
+}
+
+if (-not $ValidSelection) {
+    Write-Warn "Invalid selection, defaulting to Claude Code"
+    $InstallClaude = $true
+}
+
+# === Database Mode ===
+
+$DbMode = "shared"
+$ClaudeProfile = "default"
+$CodexProfile = "default"
+$OpenCodeProfile = "default"
+
+$SelectedCount = 0
+if ($InstallClaude) { $SelectedCount++ }
+if ($InstallCodex) { $SelectedCount++ }
+if ($InstallOpenCode) { $SelectedCount++ }
+
+if ($SelectedCount -ge 2) {
+    Write-Host ""
+    Write-Host "${BOLD}Database configuration:${NC}"
+    Write-Host "  [1] Shared - Same memories for all clients (recommended)"
+    Write-Host "  [2] Separate - Each client has its own database"
+    Write-Host "  [3] Profiles - Custom profiles (e.g., work vs home)"
+    Write-Host ""
+
+    $DbChoice = Read-Host "Choice [1]"
+    if (-not $DbChoice) { $DbChoice = "1" }
+
+    switch ($DbChoice) {
+        "2" { $DbMode = "per-client" }
+        "3" {
+            $DbMode = "profiles"
+            if ($InstallClaude) {
+                $ClaudeProfile = Read-Host "Profile for Claude Code [home]"
+                if (-not $ClaudeProfile) { $ClaudeProfile = "home" }
+                $ClaudeProfile = $ClaudeProfile -replace '[^a-zA-Z0-9_-]', ''
+            }
+            if ($InstallCodex) {
+                $CodexProfile = Read-Host "Profile for Codex [work]"
+                if (-not $CodexProfile) { $CodexProfile = "work" }
+                $CodexProfile = $CodexProfile -replace '[^a-zA-Z0-9_-]', ''
+            }
+            if ($InstallOpenCode) {
+                $OpenCodeProfile = Read-Host "Profile for OpenCode [default]"
+                if (-not $OpenCodeProfile) { $OpenCodeProfile = "default" }
+                $OpenCodeProfile = $OpenCodeProfile -replace '[^a-zA-Z0-9_-]', ''
+            }
+        }
+    }
+}
+
+Show-Progress  # Step 5: Embedding provider & client selection
 
 # === Download Models ===
 
@@ -771,12 +852,36 @@ $AutoUpdateChoice = Read-Host "Enable automatic updates? [Y/n]"
 if (-not $AutoUpdateChoice) { $AutoUpdateChoice = "Y" }
 $AutoUpdate = $AutoUpdateChoice -match "^[Yy]"
 
-# Write config file
-$ConfigContent = @{
+# Write config file with multi-client support
+$Clients = New-Object PSObject
+if ($InstallClaude) {
+    $Clients | Add-Member -NotePropertyName "claude" -NotePropertyValue ([PSCustomObject]@{ enabled = $true; profile = $ClaudeProfile })
+}
+if ($InstallCodex) {
+    $Clients | Add-Member -NotePropertyName "codex" -NotePropertyValue ([PSCustomObject]@{ enabled = $true; profile = $CodexProfile })
+}
+if ($InstallOpenCode) {
+    $Clients | Add-Member -NotePropertyName "opencode" -NotePropertyValue ([PSCustomObject]@{ enabled = $true; profile = $OpenCodeProfile })
+}
+
+$Profiles = New-Object PSObject
+$Profiles | Add-Member -NotePropertyName "default" -NotePropertyValue ([PSCustomObject]@{ dbPath = "~/.lucid/memory.db" })
+$SeenProfiles = @("default")
+foreach ($prof in @($ClaudeProfile, $CodexProfile, $OpenCodeProfile)) {
+    if ($prof -ne "default" -and $prof -notin $SeenProfiles) {
+        $Profiles | Add-Member -NotePropertyName $prof -NotePropertyValue ([PSCustomObject]@{ dbPath = "~/.lucid/memory-$prof.db" })
+        $SeenProfiles += $prof
+    }
+}
+
+$ConfigContent = [PSCustomObject]@{
     autoUpdate = $AutoUpdate
     installedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    databaseMode = $DbMode
+    clients = $Clients
+    profiles = $Profiles
 }
-Write-Utf8 "$LucidDir\config.json" ($ConfigContent | ConvertTo-Json)
+Write-Utf8 "$LucidDir\config.json" ($ConfigContent | ConvertTo-Json -Depth 10)
 
 if ($AutoUpdate) {
     Write-Success "Auto-updates enabled"
@@ -784,45 +889,130 @@ if ($AutoUpdate) {
     Write-Success "Auto-updates disabled (run 'lucid update' manually)"
 }
 
-# === Configure Claude Code ===
-
-Write-Host ""
-Write-Host "Configuring Claude Code..."
+# === Configure Clients ===
 
 $ServerPath = "$LucidBin\lucid-server.cmd"
 
-if (Test-Path $McpConfig) {
-    # Backup existing config
-    Copy-Item $McpConfig "$McpConfig.backup"
-    Write-Success "Backed up existing config"
+# === Configure Claude Code ===
 
-    # Add our server to existing config
-    $Config = Get-Content $McpConfig -Raw | ConvertFrom-Json
-    if (-not $Config.mcpServers) {
-        $Config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue (New-Object PSObject) -Force
-    }
-    $Config.mcpServers | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue ([PSCustomObject]@{
-        type = "stdio"
-        command = $ServerPath
-        args = @()
-    }) -Force
-    Write-Utf8 $McpConfig ($Config | ConvertTo-Json -Depth 10)
-} else {
-    # Create new config
-    $NewConfig = @{
-        mcpServers = @{
-            "lucid-memory" = @{
-                type = "stdio"
-                command = $ServerPath
-                args = @()
+if ($InstallClaude) {
+    Write-Host ""
+    Write-Host "Configuring Claude Code..."
+
+    if (Test-Path $McpConfig) {
+        Copy-Item $McpConfig "$McpConfig.backup"
+        Write-Success "Backed up existing config"
+
+        $Config = Get-Content $McpConfig -Raw | ConvertFrom-Json
+        if (-not $Config.mcpServers) {
+            $Config | Add-Member -NotePropertyName "mcpServers" -NotePropertyValue (New-Object PSObject) -Force
+        }
+        $Config.mcpServers | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue ([PSCustomObject]@{
+            type = "stdio"
+            command = $ServerPath
+            args = @()
+            env = [PSCustomObject]@{ LUCID_CLIENT = "claude" }
+        }) -Force
+        Write-Utf8 $McpConfig ($Config | ConvertTo-Json -Depth 10)
+    } else {
+        $NewConfig = [PSCustomObject]@{
+            mcpServers = [PSCustomObject]@{
+                "lucid-memory" = [PSCustomObject]@{
+                    type = "stdio"
+                    command = $ServerPath
+                    args = @()
+                    env = [PSCustomObject]@{ LUCID_CLIENT = "claude" }
+                }
             }
         }
+        Write-Utf8 $McpConfig ($NewConfig | ConvertTo-Json -Depth 10)
     }
-    Write-Utf8 $McpConfig ($NewConfig | ConvertTo-Json -Depth 10)
+    Write-Success "Claude Code MCP configured"
 }
 
-Write-Success "MCP server configured"
-Show-Progress  # Step 6: Configure Claude Code
+# === Configure OpenAI Codex ===
+
+if ($InstallCodex) {
+    Write-Host ""
+    Write-Host "Configuring OpenAI Codex..."
+
+    $CodexDir = "$env:USERPROFILE\.codex"
+    $CodexConfig = "$CodexDir\config.toml"
+    New-Item -ItemType Directory -Force -Path $CodexDir | Out-Null
+
+    if (Test-Path $CodexConfig) {
+        Copy-Item $CodexConfig "$CodexConfig.backup"
+    }
+
+    # Remove existing lucid-memory section if present
+    if ((Test-Path $CodexConfig) -and (Select-String -Path $CodexConfig -Pattern '^\[mcp_servers\.lucid-memory\]' -Quiet)) {
+        $Lines = Get-Content $CodexConfig
+        $NewLines = @()
+        $Skip = $false
+        foreach ($line in $Lines) {
+            if ($line -match '^\[mcp_servers\.lucid-memory\]') { $Skip = $true; continue }
+            if ($line -match '^\[' -and $Skip) { $Skip = $false }
+            if (-not $Skip) { $NewLines += $line }
+        }
+        $NewLines | Set-Content $CodexConfig
+    }
+
+    # Append new config
+    $CodexToml = @"
+
+[mcp_servers.lucid-memory]
+enabled = true
+command = "$env:USERPROFILE\.lucid\bin\lucid-server.cmd"
+args = []
+
+[mcp_servers.lucid-memory.env]
+LUCID_CLIENT = "codex"
+"@
+    Add-Content -Path $CodexConfig -Value $CodexToml
+    Write-Success "Codex MCP configured"
+}
+
+# === Configure OpenCode ===
+
+if ($InstallOpenCode) {
+    Write-Host ""
+    Write-Host "Configuring OpenCode..."
+
+    $OpenCodeDir = "$env:USERPROFILE\.config\opencode"
+    $OpenCodeConfig = "$OpenCodeDir\opencode.json"
+    New-Item -ItemType Directory -Force -Path $OpenCodeDir | Out-Null
+
+    if (Test-Path $OpenCodeConfig) {
+        Copy-Item $OpenCodeConfig "$OpenCodeConfig.backup"
+        $OcConfig = Get-Content $OpenCodeConfig -Raw | ConvertFrom-Json
+    } else {
+        $OcConfig = New-Object PSObject
+    }
+
+    if (-not $OcConfig.mcp) {
+        $OcConfig | Add-Member -NotePropertyName "mcp" -NotePropertyValue (New-Object PSObject) -Force
+    }
+    $OcConfig.mcp | Add-Member -NotePropertyName "lucid-memory" -NotePropertyValue ([PSCustomObject]@{
+        type = "local"
+        command = @("powershell", "-ExecutionPolicy", "Bypass", "-File", "$env:USERPROFILE\.lucid\bin\lucid-server.cmd")
+        environment = [PSCustomObject]@{ LUCID_CLIENT = "opencode" }
+    }) -Force
+    Write-Utf8 $OpenCodeConfig ($OcConfig | ConvertTo-Json -Depth 10)
+
+    # Install plugin
+    $PluginDir = "$OpenCodeDir\plugins"
+    New-Item -ItemType Directory -Force -Path $PluginDir | Out-Null
+    $PluginSource = "$LucidDir\server\plugins\opencode-lucid-memory.ts"
+    if (Test-Path $PluginSource) {
+        Copy-Item $PluginSource "$PluginDir\lucid-memory.ts"
+        Write-Success "OpenCode plugin installed"
+    } else {
+        Write-Warn "OpenCode plugin not found in server package"
+    }
+    Write-Success "OpenCode MCP configured"
+}
+
+Show-Progress  # Step 6: Configure clients
 
 # === Install Hooks ===
 
@@ -833,59 +1023,67 @@ Write-Host "Installing memory hooks..."
 $LucidHooksDir = "$LucidDir\hooks"
 New-Item -ItemType Directory -Force -Path $LucidHooksDir | Out-Null
 
-# Copy hook script from server package
-$HookSource = "$LucidDir\server\hooks\user-prompt-submit.ps1"
-if (Test-Path $HookSource) {
-    Copy-Item $HookSource "$LucidHooksDir\user-prompt-submit.ps1"
-    Write-Success "Hook script installed"
-} else {
-    Write-Warn "Hook script not found - automatic context injection disabled"
+if ($InstallClaude) {
+    # Copy hook script from server package
+    $HookSource = "$LucidDir\server\hooks\user-prompt-submit.ps1"
+    if (Test-Path $HookSource) {
+        Copy-Item $HookSource "$LucidHooksDir\user-prompt-submit.ps1"
+        Write-Success "Claude hook script installed"
+    } else {
+        Write-Warn "Claude hook script not found - automatic context injection disabled"
+    }
+
+    # Configure hook in Claude Code settings.json
+    $ClaudeSettings = "$ClaudeSettingsDir\settings.json"
+    $HookCommand = "$LucidHooksDir\user-prompt-submit.ps1"
+
+    try {
+        if (Test-Path $ClaudeSettings) {
+            $Config = Get-Content $ClaudeSettings -Raw | ConvertFrom-Json
+        } else {
+            $Config = New-Object PSObject
+        }
+
+        if (-not $Config.hooks) {
+            $Config | Add-Member -NotePropertyName "hooks" -NotePropertyValue (New-Object PSObject) -Force
+        }
+
+        $LucidHookEntry = [PSCustomObject]@{
+            hooks = @(
+                [PSCustomObject]@{
+                    type = "command"
+                    command = "powershell -ExecutionPolicy Bypass -File `"$HookCommand`""
+                }
+            )
+        }
+        $ExistingHooks = @()
+        if ($Config.hooks.UserPromptSubmit) {
+            $ExistingHooks = @($Config.hooks.UserPromptSubmit | Where-Object {
+                $IsLucid = $false
+                if ($_.hooks) {
+                    foreach ($h in $_.hooks) {
+                        if ($h.command -and $h.command -match 'lucid|user-prompt-submit') { $IsLucid = $true }
+                    }
+                }
+                -not $IsLucid
+            })
+        }
+        $Config.hooks | Add-Member -NotePropertyName "UserPromptSubmit" -NotePropertyValue @($ExistingHooks + $LucidHookEntry) -Force
+
+        Write-Utf8 $ClaudeSettings ($Config | ConvertTo-Json -Depth 10)
+        Write-Success "Claude hook configured in settings.json"
+    } catch {
+        Write-Warn "Could not configure Claude hook in settings.json - manual setup may be needed"
+    }
 }
 
-# Configure hook in Claude Code settings.json
-$ClaudeSettings = "$ClaudeSettingsDir\settings.json"
-$HookCommand = "$LucidHooksDir\user-prompt-submit.ps1"
-
-try {
-    if (Test-Path $ClaudeSettings) {
-        $Config = Get-Content $ClaudeSettings -Raw | ConvertFrom-Json
-    } else {
-        # Must use PSCustomObject, not @{} — PS 5.1 ConvertTo-Json on a
-        # Hashtable ignores NoteProperties added via Add-Member
-        $Config = New-Object PSObject
+if ($InstallCodex) {
+    # Copy codex hook script if available
+    $CodexHookSource = "$LucidDir\server\hooks\codex-notify.sh"
+    if (Test-Path $CodexHookSource) {
+        Copy-Item $CodexHookSource "$LucidHooksDir\codex-notify.sh"
+        Write-Success "Codex hook script installed"
     }
-
-    if (-not $Config.hooks) {
-        $Config | Add-Member -NotePropertyName "hooks" -NotePropertyValue (New-Object PSObject) -Force
-    }
-
-    # Merge: keep existing non-Lucid hooks, add/replace only Lucid's entry
-    $LucidHookEntry = [PSCustomObject]@{
-        hooks = @(
-            [PSCustomObject]@{
-                type = "command"
-                command = "powershell -ExecutionPolicy Bypass -File `"$HookCommand`""
-            }
-        )
-    }
-    $ExistingHooks = @()
-    if ($Config.hooks.UserPromptSubmit) {
-        $ExistingHooks = @($Config.hooks.UserPromptSubmit | Where-Object {
-            $IsLucid = $false
-            if ($_.hooks) {
-                foreach ($h in $_.hooks) {
-                    if ($h.command -and $h.command -match 'lucid|user-prompt-submit') { $IsLucid = $true }
-                }
-            }
-            -not $IsLucid
-        })
-    }
-    $Config.hooks | Add-Member -NotePropertyName "UserPromptSubmit" -NotePropertyValue @($ExistingHooks + $LucidHookEntry) -Force
-
-    Write-Utf8 $ClaudeSettings ($Config | ConvertTo-Json -Depth 10)
-    Write-Success "Hook configured in settings.json"
-} catch {
-    Write-Warn "Could not configure hook in settings.json - manual setup may be needed"
 }
 
 # === Add to PATH ===
@@ -920,8 +1118,18 @@ if (-not (Test-Path "$LucidBin\lucid.cmd")) {
     $InstallErrors += "CLI missing"
 }
 
-if (-not (Test-Path $McpConfig)) {
-    $InstallErrors += "MCP config not created"
+if ($InstallClaude -and -not (Test-Path $McpConfig)) {
+    $InstallErrors += "Claude MCP config not created"
+}
+
+if ($InstallOpenCode) {
+    $OcConfigPath = "$env:USERPROFILE\.config\opencode\opencode.json"
+    if ((Test-Path $OcConfigPath) -and -not (Select-String -Path $OcConfigPath -Pattern "lucid-memory" -Quiet)) {
+        $InstallErrors += "OpenCode MCP config missing lucid-memory entry"
+    }
+    if (-not (Test-Path "$env:USERPROFILE\.config\opencode\plugins\lucid-memory.ts")) {
+        $InstallErrors += "OpenCode plugin not installed"
+    }
 }
 
 # Check Bun is available
@@ -941,18 +1149,20 @@ if ($InstallErrors.Count -gt 0) {
 
 # === Restart Claude Code ===
 
-Write-Host ""
-Write-Host "Restarting Claude Code to activate Lucid Memory..."
+if ($InstallClaude) {
+    Write-Host ""
+    Write-Host "Restarting Claude Code to activate Lucid Memory..."
 
-$ClaudeProcess = Get-Process -Name "Claude*" -ErrorAction SilentlyContinue
-if ($ClaudeProcess) {
-    $ClaudeProcess | Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    $ClaudeProcess = Get-Process -Name "Claude*" -ErrorAction SilentlyContinue
+    if ($ClaudeProcess) {
+        $ClaudeProcess | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
 
-    # Try to restart Claude
-    $ClaudePath = "$env:LOCALAPPDATA\Programs\Claude\Claude.exe"
-    if (Test-Path $ClaudePath) {
-        Start-Process -FilePath $ClaudePath
+        # Try to restart Claude
+        $ClaudePath = "$env:LOCALAPPDATA\Programs\Claude\Claude.exe"
+        if (Test-Path $ClaudePath) {
+            Start-Process -FilePath $ClaudePath
+        }
     }
 }
 Show-Progress  # Step 8: Restart Claude Code
@@ -981,8 +1191,8 @@ if ($script:SupportsAnsi) {
     Write-Host "  ✓ Installed Successfully!" -ForegroundColor Green
 }
 Write-Host ""
-Write-Host "  Just use Claude Code normally - your memories"
-Write-Host "  build automatically over time."
+Write-Host "  Just use your AI coding assistant normally -"
+Write-Host "  your memories build automatically over time."
 Write-Host ""
 Write-Host "  Troubleshooting:" -ForegroundColor DarkGray
 Write-Host "  lucid status" -ForegroundColor Cyan -NoNewline; Write-Host "  - Check if everything is working"

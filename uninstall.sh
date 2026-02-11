@@ -63,6 +63,9 @@ MCP_CONFIG="$HOME/.claude.json"
 # Codex uses ~/.codex/config.toml
 CODEX_DIR="$HOME/.codex"
 CODEX_CONFIG="$CODEX_DIR/config.toml"
+# OpenCode uses ~/.config/opencode/opencode.json
+OPENCODE_CONFIG_DIR="$HOME/.config/opencode"
+OPENCODE_CONFIG="$OPENCODE_CONFIG_DIR/opencode.json"
 
 # Check if Lucid is installed
 if [ ! -d "$LUCID_DIR" ]; then
@@ -91,6 +94,14 @@ fi
 
 if [ -f "$CODEX_CONFIG" ] && grep -q "codex-notify.sh" "$CODEX_CONFIG" 2>/dev/null; then
     REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} Notify hook from ~/.codex/config.toml"
+fi
+
+if [ -f "$OPENCODE_CONFIG" ] && grep -q "lucid-memory" "$OPENCODE_CONFIG" 2>/dev/null; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} MCP server config from opencode.json"
+fi
+
+if [ -f "$OPENCODE_CONFIG_DIR/plugins/lucid-memory.ts" ]; then
+    REMOVE_LIST="${REMOVE_LIST}\n  ${C4}•${NC} OpenCode plugin"
 fi
 
 # Check for PATH entry
@@ -190,6 +201,40 @@ if [ -f "$CODEX_CONFIG" ]; then
         mv "$CODEX_CONFIG.tmp" "$CODEX_CONFIG"
         success "Codex notify hook removed"
     fi
+fi
+
+# === Remove OpenCode Config ===
+
+if [ -f "$OPENCODE_CONFIG" ] && grep -q "lucid-memory" "$OPENCODE_CONFIG" 2>/dev/null; then
+    info "Removing OpenCode MCP configuration..."
+
+    if command -v jq &> /dev/null; then
+        jq 'del(.mcp["lucid-memory"])' "$OPENCODE_CONFIG" > "$OPENCODE_CONFIG.tmp" && mv "$OPENCODE_CONFIG.tmp" "$OPENCODE_CONFIG"
+        success "OpenCode MCP config removed"
+    elif command -v python3 &> /dev/null; then
+        python3 << 'PYTHON_SCRIPT'
+import json, os
+config_path = os.path.expanduser("~/.config/opencode/opencode.json")
+try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+    if 'mcp' in config and 'lucid-memory' in config['mcp']:
+        del config['mcp']['lucid-memory']
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+except Exception:
+    pass
+PYTHON_SCRIPT
+        success "OpenCode MCP config removed"
+    else
+        warn "Could not edit OpenCode config - please remove 'lucid-memory' manually from $OPENCODE_CONFIG"
+    fi
+fi
+
+# Remove OpenCode plugin
+if [ -f "$OPENCODE_CONFIG_DIR/plugins/lucid-memory.ts" ]; then
+    rm -f "$OPENCODE_CONFIG_DIR/plugins/lucid-memory.ts"
+    success "OpenCode plugin removed"
 fi
 
 # === Remove Hooks ===

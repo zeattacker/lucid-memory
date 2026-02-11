@@ -70,7 +70,7 @@ show_banner() {
     echo -e "${C6}  ╚══════╝ ╚═════╝  ╚═════╝╚═╝╚═════╝ ${NC}"
     echo -e "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
     echo ""
-    echo -e "  ${DIM}Claude Code that remembers.${NC}"
+    echo -e "  ${DIM}AI coding assistants that remember.${NC}"
     echo ""
 }
 
@@ -273,11 +273,12 @@ if ! command -v curl &> /dev/null; then
         "Please install curl first:\n  Ubuntu/Debian: sudo apt install curl\n  Fedora: sudo dnf install curl"
 fi
 
-# Check for Claude Code (required, cannot auto-install)
+# Check for Claude Code (optional - user may install for other clients only)
 CLAUDE_SETTINGS_DIR="$HOME/.claude"
 if [ ! -d "$CLAUDE_SETTINGS_DIR" ]; then
-    fail "Claude Code not found" \
-        "Please install Claude Code first: https://claude.ai/download\n\nAfter installing, run this installer again."
+    warn "Claude Code not found (~/.claude does not exist)"
+    echo "  If you plan to use Claude Code, install it first: https://claude.ai/download"
+    echo ""
 fi
 
 # Check disk space
@@ -1020,34 +1021,55 @@ show_progress  # Step 5: Embedding provider
 
 echo ""
 echo -e "${BOLD}Which AI coding assistants do you use?${NC}"
-echo "  [1] Claude Code only"
-echo "  [2] OpenAI Codex only"
-echo "  [3] Both (recommended)"
+echo "  [1] Claude Code"
+echo "  [2] OpenAI Codex"
+echo "  [3] OpenCode"
 echo ""
-
-if [ "$INTERACTIVE" = true ]; then
-    read -p "Choice [3]: " CLIENT_CHOICE
-    CLIENT_CHOICE=${CLIENT_CHOICE:-3}
-else
-    echo "Non-interactive mode, defaulting to Claude Code only..."
-    CLIENT_CHOICE=1
-fi
+echo "  Enter numbers separated by spaces (e.g. '1 3')"
+echo "  Press Enter for all clients."
+echo ""
 
 INSTALL_CLAUDE=false
 INSTALL_CODEX=false
-case $CLIENT_CHOICE in
-    1) INSTALL_CLAUDE=true ;;
-    2) INSTALL_CODEX=true ;;
-    *) INSTALL_CLAUDE=true; INSTALL_CODEX=true ;;
-esac
+INSTALL_OPENCODE=false
 
-# === Database Mode (only if both clients) ===
+if [ "$INTERACTIVE" = true ]; then
+    read -p "Choice: " CLIENT_INPUT
+    CLIENT_INPUT=${CLIENT_INPUT:-"1 2 3"}
+else
+    echo "Non-interactive mode, defaulting to Claude Code only..."
+    CLIENT_INPUT="1"
+fi
+
+# Parse space-separated numbers
+VALID_SELECTION=false
+for num in $CLIENT_INPUT; do
+    case $num in
+        1) INSTALL_CLAUDE=true; VALID_SELECTION=true ;;
+        2) INSTALL_CODEX=true; VALID_SELECTION=true ;;
+        3) INSTALL_OPENCODE=true; VALID_SELECTION=true ;;
+    esac
+done
+
+if [ "$VALID_SELECTION" = false ]; then
+    warn "Invalid selection, defaulting to Claude Code"
+    INSTALL_CLAUDE=true
+fi
+
+# === Database Mode (only if multiple clients) ===
 
 DB_MODE="shared"
 CLAUDE_PROFILE="default"
 CODEX_PROFILE="default"
+OPENCODE_PROFILE="default"
 
-if [ "$INSTALL_CLAUDE" = true ] && [ "$INSTALL_CODEX" = true ]; then
+# Count selected clients
+SELECTED_COUNT=0
+[ "$INSTALL_CLAUDE" = true ] && SELECTED_COUNT=$((SELECTED_COUNT + 1))
+[ "$INSTALL_CODEX" = true ] && SELECTED_COUNT=$((SELECTED_COUNT + 1))
+[ "$INSTALL_OPENCODE" = true ] && SELECTED_COUNT=$((SELECTED_COUNT + 1))
+
+if [ "$SELECTED_COUNT" -ge 2 ]; then
     echo ""
     echo -e "${BOLD}Database configuration:${NC}"
     echo "  [1] Shared - Same memories for all clients (recommended)"
@@ -1067,13 +1089,25 @@ if [ "$INSTALL_CLAUDE" = true ] && [ "$INSTALL_CODEX" = true ]; then
         3)
             DB_MODE="profiles"
             if [ "$INTERACTIVE" = true ]; then
-                read -p "Profile for Claude Code [home]: " CLAUDE_PROFILE
-                CLAUDE_PROFILE=${CLAUDE_PROFILE:-home}
-                read -p "Profile for Codex [work]: " CODEX_PROFILE
-                CODEX_PROFILE=${CODEX_PROFILE:-work}
+                if [ "$INSTALL_CLAUDE" = true ]; then
+                    read -p "Profile for Claude Code [home]: " CLAUDE_PROFILE
+                    CLAUDE_PROFILE=${CLAUDE_PROFILE:-home}
+                    CLAUDE_PROFILE=$(echo "$CLAUDE_PROFILE" | sed 's/[^a-zA-Z0-9_-]//g')
+                fi
+                if [ "$INSTALL_CODEX" = true ]; then
+                    read -p "Profile for Codex [work]: " CODEX_PROFILE
+                    CODEX_PROFILE=${CODEX_PROFILE:-work}
+                    CODEX_PROFILE=$(echo "$CODEX_PROFILE" | sed 's/[^a-zA-Z0-9_-]//g')
+                fi
+                if [ "$INSTALL_OPENCODE" = true ]; then
+                    read -p "Profile for OpenCode [default]: " OPENCODE_PROFILE
+                    OPENCODE_PROFILE=${OPENCODE_PROFILE:-default}
+                    OPENCODE_PROFILE=$(echo "$OPENCODE_PROFILE" | sed 's/[^a-zA-Z0-9_-]//g')
+                fi
             else
                 CLAUDE_PROFILE="home"
                 CODEX_PROFILE="work"
+                OPENCODE_PROFILE="default"
             fi
             ;;
     esac
@@ -1172,25 +1206,50 @@ write_config() {
     local install_codex="$4"
     local claude_profile="$5"
     local codex_profile="$6"
+    local install_opencode="$7"
+    local opencode_profile="$8"
 
-    # Build clients section
+    # Build clients section dynamically
+    local client_entries=()
+    if [ "$install_claude" = true ]; then
+        client_entries+=("\"claude\": {\"enabled\": true, \"profile\": \"$claude_profile\"}")
+    fi
+    if [ "$install_codex" = true ]; then
+        client_entries+=("\"codex\": {\"enabled\": true, \"profile\": \"$codex_profile\"}")
+    fi
+    if [ "$install_opencode" = true ]; then
+        client_entries+=("\"opencode\": {\"enabled\": true, \"profile\": \"$opencode_profile\"}")
+    fi
+
+    # Join client entries with comma
     local clients=""
-    if [ "$install_claude" = true ] && [ "$install_codex" = true ]; then
-        clients="\"claude\": {\"enabled\": true, \"profile\": \"$claude_profile\"}, \"codex\": {\"enabled\": true, \"profile\": \"$codex_profile\"}"
-    elif [ "$install_claude" = true ]; then
-        clients="\"claude\": {\"enabled\": true, \"profile\": \"$claude_profile\"}"
-    elif [ "$install_codex" = true ]; then
-        clients="\"codex\": {\"enabled\": true, \"profile\": \"$codex_profile\"}"
-    fi
+    local first=true
+    for entry in "${client_entries[@]}"; do
+        if [ "$first" = true ]; then
+            clients="$entry"
+            first=false
+        else
+            clients="$clients, $entry"
+        fi
+    done
 
-    # Build profiles section
+    # Build profiles section - collect unique non-default profiles
     local profiles="\"default\": {\"dbPath\": \"~/.lucid/memory.db\"}"
-    if [ "$claude_profile" != "default" ]; then
-        profiles="$profiles, \"$claude_profile\": {\"dbPath\": \"~/.lucid/memory-$claude_profile.db\"}"
-    fi
-    if [ "$codex_profile" != "default" ] && [ "$codex_profile" != "$claude_profile" ]; then
-        profiles="$profiles, \"$codex_profile\": {\"dbPath\": \"~/.lucid/memory-$codex_profile.db\"}"
-    fi
+    local seen_profiles="default"
+    for prof in "$claude_profile" "$codex_profile" "$opencode_profile"; do
+        if [ "$prof" != "default" ]; then
+            # Check if already added (bash 3.x compatible string check)
+            case " $seen_profiles " in
+                *" $prof "*)
+                    # Already added
+                    ;;
+                *)
+                    profiles="$profiles, \"$prof\": {\"dbPath\": \"~/.lucid/memory-$prof.db\"}"
+                    seen_profiles="$seen_profiles $prof"
+                    ;;
+            esac
+        fi
+    done
 
     cat > "$LUCID_DIR/config.json" << CONFIGEOF
 {
@@ -1203,7 +1262,7 @@ write_config() {
 CONFIGEOF
 }
 
-write_config "$AUTO_UPDATE" "$DB_MODE" "$INSTALL_CLAUDE" "$INSTALL_CODEX" "$CLAUDE_PROFILE" "$CODEX_PROFILE"
+write_config "$AUTO_UPDATE" "$DB_MODE" "$INSTALL_CLAUDE" "$INSTALL_CODEX" "$CLAUDE_PROFILE" "$CODEX_PROFILE" "$INSTALL_OPENCODE" "$OPENCODE_PROFILE"
 
 if [ "$AUTO_UPDATE" = true ]; then
     success "Auto-updates enabled"
@@ -1286,6 +1345,75 @@ if [ "$INSTALL_CODEX" = true ]; then
     configure_codex_mcp
 fi
 
+# === Configure OpenCode ===
+
+configure_opencode_mcp() {
+    local OPENCODE_DIR="$HOME/.config/opencode"
+    local OPENCODE_CONFIG="$OPENCODE_DIR/opencode.json"
+
+    mkdir -p "$OPENCODE_DIR"
+
+    # Backup if exists
+    [ -f "$OPENCODE_CONFIG" ] && cp "$OPENCODE_CONFIG" "$OPENCODE_CONFIG.backup"
+
+    local server_path="$HOME/.lucid/bin/lucid-server"
+
+    # If jq is available, use it (safest)
+    if command -v jq &> /dev/null; then
+        if [ -f "$OPENCODE_CONFIG" ]; then
+            jq --arg cmd "$server_path" '.mcp["lucid-memory"] = {"type": "local", "command": ["bash", $cmd], "environment": {"LUCID_CLIENT": "opencode"}}' \
+                "$OPENCODE_CONFIG" > "$OPENCODE_CONFIG.tmp" && mv "$OPENCODE_CONFIG.tmp" "$OPENCODE_CONFIG"
+        else
+            jq -n --arg cmd "$server_path" '{"mcp": {"lucid-memory": {"type": "local", "command": ["bash", $cmd], "environment": {"LUCID_CLIENT": "opencode"}}}}' \
+                > "$OPENCODE_CONFIG"
+        fi
+        return 0
+    fi
+
+    # If python is available, use it
+    if command -v python3 &> /dev/null; then
+        python3 - "$OPENCODE_CONFIG" "$server_path" << 'PYEOF'
+import json, sys, os
+config_file, server_path = sys.argv[1], sys.argv[2]
+if os.path.exists(config_file):
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+else:
+    config = {}
+if 'mcp' not in config:
+    config['mcp'] = {}
+config['mcp']['lucid-memory'] = {
+    'type': 'local',
+    'command': ['bash', server_path],
+    'environment': {'LUCID_CLIENT': 'opencode'}
+}
+with open(config_file, 'w') as f:
+    json.dump(config, f, indent=2)
+PYEOF
+        return 0
+    fi
+
+    # Fallback: write fresh config
+    cat > "$OPENCODE_CONFIG" << EOF
+{
+  "mcp": {
+    "lucid-memory": {
+      "type": "local",
+      "command": ["bash", "$server_path"],
+      "environment": {"LUCID_CLIENT": "opencode"}
+    }
+  }
+}
+EOF
+}
+
+if [ "$INSTALL_OPENCODE" = true ]; then
+    echo ""
+    echo "Configuring OpenCode..."
+    configure_opencode_mcp
+    success "OpenCode MCP configured"
+fi
+
 show_progress  # Step 6: Configure clients
 
 # === Install Hooks ===
@@ -1327,6 +1455,18 @@ if [ "$INSTALL_CODEX" = true ]; then
         fi
     else
         warn "Codex hook script not found - automatic memory capture disabled"
+    fi
+fi
+
+# OpenCode plugin
+if [ "$INSTALL_OPENCODE" = true ]; then
+    if [ -f "$LUCID_DIR/server/plugins/opencode-lucid-memory.ts" ]; then
+        mkdir -p "$HOME/.config/opencode/plugins"
+        cp "$LUCID_DIR/server/plugins/opencode-lucid-memory.ts" \
+           "$HOME/.config/opencode/plugins/lucid-memory.ts"
+        success "OpenCode plugin installed"
+    else
+        warn "OpenCode plugin not found in server package"
     fi
 fi
 
@@ -1471,8 +1611,18 @@ if [ ! -x "$LUCID_BIN/lucid" ]; then
     INSTALL_ERRORS="${INSTALL_ERRORS}\n  - CLI missing"
 fi
 
-if [ ! -f "$MCP_CONFIG" ]; then
-    INSTALL_ERRORS="${INSTALL_ERRORS}\n  - MCP config not created"
+if [ "$INSTALL_CLAUDE" = true ] && [ ! -f "$MCP_CONFIG" ]; then
+    INSTALL_ERRORS="${INSTALL_ERRORS}\n  - Claude MCP config not created"
+fi
+
+if [ "$INSTALL_OPENCODE" = true ]; then
+    OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+    if [ -f "$OPENCODE_CONFIG" ] && ! grep -q "lucid-memory" "$OPENCODE_CONFIG" 2>/dev/null; then
+        INSTALL_ERRORS="${INSTALL_ERRORS}\n  - OpenCode MCP config missing lucid-memory entry"
+    fi
+    if [ ! -f "$HOME/.config/opencode/plugins/lucid-memory.ts" ]; then
+        INSTALL_ERRORS="${INSTALL_ERRORS}\n  - OpenCode plugin not installed"
+    fi
 fi
 
 # Check Bun is available
@@ -1490,7 +1640,9 @@ fi
 
 # === Restart Claude Code ===
 
-restart_claude_code
+if [ "$INSTALL_CLAUDE" = true ]; then
+    restart_claude_code
+fi
 show_progress  # Step 8: Restart Claude Code
 
 # === Done! ===
@@ -1506,8 +1658,8 @@ echo -e "          ${C3}M ${C4}E ${C5}M ${C6}O ${C5}R ${C4}Y${NC}"
 echo ""
 echo -e "       ${GREEN}✓${NC} ${BOLD}Installed Successfully!${NC}"
 echo ""
-echo -e "  Just use Claude Code normally - your memories"
-echo -e "  build automatically over time."
+echo -e "  Just use your AI coding assistant normally -"
+echo -e "  your memories build automatically over time."
 echo ""
 echo -e "  ${DIM}Troubleshooting:${NC}"
 echo -e "  ${C4}lucid status${NC}  - Check if everything is working"

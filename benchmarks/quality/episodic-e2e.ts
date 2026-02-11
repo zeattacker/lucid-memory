@@ -51,48 +51,66 @@ async function episodeRetrievalScenario(): Promise<ScenarioResult> {
 		const projectId = "bench-project"
 
 		// Phase 1: Bug investigation (the "before" we want to find)
-		await retrieval.store("Investigated memory leak in user-service, found connection pool not closing", {
-			type: "bug",
-			projectId,
-			tags: ["user-service", "memory-leak"],
-		})
+		await retrieval.store(
+			"Investigated memory leak in user-service, found connection pool not closing",
+			{
+				type: "bug",
+				projectId,
+				tags: ["user-service", "memory-leak"],
+			}
+		)
 		await sleep(50)
 
-		await retrieval.store("Traced the leak to session-handler.ts, the pool.release() was missing in error path", {
-			type: "bug",
-			projectId,
-			tags: ["session-handler", "pool"],
-		})
+		await retrieval.store(
+			"Traced the leak to session-handler.ts, the pool.release() was missing in error path",
+			{
+				type: "bug",
+				projectId,
+				tags: ["session-handler", "pool"],
+			}
+		)
 		await sleep(50)
 
-		await retrieval.store("Checked user-tests.ts to see if connection cleanup was covered - it was not", {
-			type: "context",
-			projectId,
-			tags: ["testing", "coverage"],
-		})
+		await retrieval.store(
+			"Checked user-tests.ts to see if connection cleanup was covered - it was not",
+			{
+				type: "context",
+				projectId,
+				tags: ["testing", "coverage"],
+			}
+		)
 		await sleep(50)
 
 		// Phase 2: The "anchor" event - auth refactor
-		await retrieval.store("Refactored auth module to use centralized token management instead of per-request tokens", {
-			type: "decision",
-			projectId,
-			tags: ["auth", "refactor"],
-		})
+		await retrieval.store(
+			"Refactored auth module to use centralized token management instead of per-request tokens",
+			{
+				type: "decision",
+				projectId,
+				tags: ["auth", "refactor"],
+			}
+		)
 		await sleep(50)
 
 		// Phase 3: After auth refactor (should NOT be returned for "before" query)
-		await retrieval.store("Updated auth middleware to use the new token manager", {
-			type: "learning",
-			projectId,
-			tags: ["auth", "middleware"],
-		})
+		await retrieval.store(
+			"Updated auth middleware to use the new token manager",
+			{
+				type: "learning",
+				projectId,
+				tags: ["auth", "middleware"],
+			}
+		)
 		await sleep(50)
 
-		await retrieval.store("Added integration tests for the new auth token flow", {
-			type: "context",
-			projectId,
-			tags: ["auth", "testing"],
-		})
+		await retrieval.store(
+			"Added integration tests for the new auth token flow",
+			{
+				type: "context",
+				projectId,
+				tags: ["auth", "testing"],
+			}
+		)
 
 		// Now query: "What was I working on before the auth refactor?"
 		const results = await retrieval.retrieveTemporalNeighbors(
@@ -103,21 +121,16 @@ async function episodeRetrievalScenario(): Promise<ScenarioResult> {
 
 		// Evaluate: Should find bug investigation memories, NOT auth follow-up
 		const resultContents = results.map((r) => r.memory.content)
-		const beforeContents = [
-			"memory leak",
-			"session-handler",
-			"user-tests",
-		]
-		const afterContents = [
-			"middleware",
-			"integration tests",
-		]
+		const beforeContents = ["memory leak", "session-handler", "user-tests"]
+		const afterContents = ["middleware", "integration tests"]
 
 		let beforeFound = 0
 		let afterFound = 0
 		for (const content of resultContents) {
-			if (beforeContents.some((kw) => content.toLowerCase().includes(kw))) beforeFound++
-			if (afterContents.some((kw) => content.toLowerCase().includes(kw))) afterFound++
+			if (beforeContents.some((kw) => content.toLowerCase().includes(kw)))
+				beforeFound++
+			if (afterContents.some((kw) => content.toLowerCase().includes(kw)))
+				afterFound++
 		}
 
 		// Score: 0.6 for finding 2+ "before" memories, 0.4 for not finding "after" memories
@@ -235,7 +248,8 @@ async function tcmAsymmetryScenario(): Promise<ScenarioResult> {
 		// Forward (after) links from step 2 → step 3 should be stronger
 		// than backward (before) links from step 2 → step 1
 		const afterStrength = afterResults.length > 0 ? afterResults[0]!.score : 0
-		const beforeStrength = beforeResults.length > 0 ? beforeResults[0]!.score : 0
+		const beforeStrength =
+			beforeResults.length > 0 ? beforeResults[0]!.score : 0
 
 		let score = 0
 		if (afterResults.length > 0) score += 0.3
@@ -424,9 +438,7 @@ async function main() {
 
 	console.log("\n Results")
 	console.log("═".repeat(80))
-	console.log(
-		"Scenario                      │  Score  │ Status  │ Details"
-	)
+	console.log("Scenario                      │  Score  │ Status  │ Details")
 	console.log("─".repeat(80))
 
 	let passing = 0
@@ -440,8 +452,7 @@ async function main() {
 
 	console.log("─".repeat(80))
 
-	const avgScore =
-		results.reduce((sum, r) => sum + r.score, 0) / results.length
+	const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length
 
 	console.log(`\n Summary`)
 	console.log("─".repeat(40))

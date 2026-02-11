@@ -213,7 +213,8 @@ describe("generateGist", () => {
 		})
 
 		it("should handle URLs with periods", () => {
-			const text = "See docs.example.com for documentation. More info available."
+			const text =
+				"See docs.example.com for documentation. More info available."
 			const gist = generateGist(text, 150)
 			// URL has periods but no space after, so shouldn't split
 			expect(gist).toBeDefined()
