@@ -150,7 +150,9 @@ pub use activation::{
 	InstanceNoiseConfig,
 	ReconsolidationConfig,
 	WorkingMemoryConfig,
-	BETA_RECON, THETA_HIGH, THETA_LOW,
+	BETA_RECON,
+	THETA_HIGH,
+	THETA_LOW,
 };
 pub use retrieval::{retrieve, RetrievalCandidate, RetrievalConfig, RetrievalInput};
 pub use spreading::{

@@ -874,7 +874,10 @@ mod tests {
 		// Center of reconsolidation zone should have high probability
 		let center = (THETA_LOW + THETA_HIGH) / 2.0;
 		let prob = reconsolidation_probability(center, THETA_LOW, THETA_HIGH, BETA_RECON);
-		assert!(prob > 0.2, "Center of zone should have meaningful probability, got {prob}");
+		assert!(
+			prob > 0.2,
+			"Center of zone should have meaningful probability, got {prob}"
+		);
 	}
 
 	#[test]
@@ -884,14 +887,20 @@ mod tests {
 		// At pe=0, the sigmoid suppresses more fully
 		let prob_zero = reconsolidation_probability(0.0, THETA_LOW, THETA_HIGH, BETA_RECON);
 		let prob_center = reconsolidation_probability(0.3, THETA_LOW, THETA_HIGH, BETA_RECON);
-		assert!(prob_zero < prob_center, "pe=0 should have lower probability than center");
+		assert!(
+			prob_zero < prob_center,
+			"pe=0 should have lower probability than center"
+		);
 	}
 
 	#[test]
 	fn test_reconsolidation_probability_above_high() {
 		// Well above θ_high should have near-zero probability
 		let prob = reconsolidation_probability(0.9, THETA_LOW, THETA_HIGH, BETA_RECON);
-		assert!(prob < 0.1, "Above θ_high should have low probability, got {prob}");
+		assert!(
+			prob < 0.1,
+			"Above θ_high should have low probability, got {prob}"
+		);
 	}
 
 	#[test]
@@ -922,7 +931,10 @@ mod tests {
 		let config = ReconsolidationConfig::default();
 		let (_, high_new) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 1, 1.0, &config);
 		let (_, high_used) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 15, 1.0, &config);
-		assert!(high_used < high_new, "Well-used memories should have lower θ_high");
+		assert!(
+			high_used < high_new,
+			"Well-used memories should have lower θ_high"
+		);
 	}
 
 	#[test]
@@ -930,7 +942,10 @@ mod tests {
 		let config = ReconsolidationConfig::default();
 		// Extreme values that could collapse the gap
 		let (low, high) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 100, 100.0, &config);
-		assert!(high >= low + 0.05, "Must maintain minimum gap: low={low}, high={high}");
+		assert!(
+			high >= low + 0.05,
+			"Must maintain minimum gap: low={low}, high={high}"
+		);
 	}
 
 	// Original tests

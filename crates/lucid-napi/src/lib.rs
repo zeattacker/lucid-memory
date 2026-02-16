@@ -436,12 +436,7 @@ pub struct JsReconsolidationConfig {
 ///
 /// Returns probability of reconsolidation (peaks in the middle PE zone).
 #[napi]
-pub fn reconsolidation_probability(
-	pe_abs: f64,
-	theta_low: f64,
-	theta_high: f64,
-	beta: f64,
-) -> f64 {
+pub fn reconsolidation_probability(pe_abs: f64, theta_low: f64, theta_high: f64, beta: f64) -> f64 {
 	lucid_core::reconsolidation_probability(pe_abs, theta_low, theta_high, beta)
 }
 
