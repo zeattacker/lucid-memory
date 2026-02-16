@@ -104,6 +104,8 @@ export interface MemoryInput {
 	emotionalWeight?: number
 	projectId?: string
 	tags?: string[]
+	encodingStrength?: number
+	encodingContext?: EncodingContext
 }
 
 export interface Association {
@@ -651,11 +653,12 @@ export class LucidStorage {
 		const id = randomUUID()
 		const now = Date.now()
 		const tags = JSON.stringify(input.tags ?? [])
+		const encodingContext = JSON.stringify(input.encodingContext ?? {})
 
 		this.db
 			.prepare(`
-      INSERT INTO memories (id, type, content, gist, created_at, emotional_weight, project_id, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO memories (id, type, content, gist, created_at, emotional_weight, project_id, tags, encoding_strength, encoding_context)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
 			.run(
 				id,
@@ -665,7 +668,9 @@ export class LucidStorage {
 				now,
 				input.emotionalWeight ?? 0.5,
 				input.projectId ?? null,
-				tags
+				tags,
+				input.encodingStrength ?? 0.5,
+				encodingContext
 			)
 
 		// Record initial access
@@ -759,7 +764,7 @@ export class LucidStorage {
 	/**
 	 * Get access history for a memory (for base-level activation).
 	 */
-	getAccessHistory(memoryId: string): number[] {
+	private getAccessHistory(memoryId: string): number[] {
 		const rows = this.db
 			.prepare(`
       SELECT accessed_at FROM access_history WHERE memory_id = ? ORDER BY accessed_at DESC
@@ -899,18 +904,6 @@ export class LucidStorage {
 			map.set(row.memory_id, vector)
 		}
 		return map
-	}
-
-	/**
-	 * Check if memory has an embedding.
-	 */
-	hasEmbedding(memoryId: string): boolean {
-		const row = this.db
-			.prepare(`
-      SELECT 1 FROM embeddings WHERE memory_id = ?
-    `)
-			.get(memoryId)
-		return !!row
 	}
 
 	/**
@@ -1054,6 +1047,203 @@ export class LucidStorage {
 	}
 
 	// ============================================================================
+	// Consolidation Queries (0.6.0)
+	// ============================================================================
+
+	getRecentlyAccessedMemories(sinceMs: number, limit: number): Memory[] {
+		const since = Date.now() - sinceMs
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM memories WHERE last_accessed >= ? ORDER BY last_accessed DESC LIMIT ?`
+			)
+			.all(since, limit) as MemoryRow[]
+		return rows.map((r) => this.rowToMemory(r))
+	}
+
+	getStaleMemories(olderThanDays: number, limit: number): Memory[] {
+		const cutoff = Date.now() - olderThanDays * 24 * 60 * 60 * 1000
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM memories WHERE (last_accessed IS NULL OR last_accessed < ?) AND encoding_strength > 0.1 ORDER BY last_accessed ASC LIMIT ?`
+			)
+			.all(cutoff, limit) as MemoryRow[]
+		return rows.map((r) => this.rowToMemory(r))
+	}
+
+	updateEncodingStrength(memoryId: string, strength: number): void {
+		this.db
+			.prepare(`UPDATE memories SET encoding_strength = ? WHERE id = ?`)
+			.run(strength, memoryId)
+	}
+
+	updateConsolidationState(memoryId: string, state: ConsolidationState): void {
+		this.db
+			.prepare(
+				`UPDATE memories SET consolidation_state = ?, last_consolidated = ? WHERE id = ?`
+			)
+			.run(state, Date.now(), memoryId)
+	}
+
+	getMemoriesByConsolidationState(
+		state: ConsolidationState,
+		limit: number
+	): Memory[] {
+		const rows = this.db
+			.prepare(
+				`SELECT * FROM memories WHERE consolidation_state = ? ORDER BY created_at ASC LIMIT ?`
+			)
+			.all(state, limit) as MemoryRow[]
+		return rows.map((r) => this.rowToMemory(r))
+	}
+
+	getConsolidationCounts(): Record<ConsolidationState, number> {
+		const rows = this.db
+			.prepare(
+				`SELECT consolidation_state, COUNT(*) as count FROM memories GROUP BY consolidation_state`
+			)
+			.all() as { consolidation_state: string; count: number }[]
+		const counts: Record<ConsolidationState, number> = {
+			fresh: 0,
+			consolidating: 0,
+			consolidated: 0,
+			reconsolidating: 0,
+		}
+		for (const row of rows) {
+			const state = row.consolidation_state as ConsolidationState
+			if (state in counts) counts[state] = row.count
+		}
+		return counts
+	}
+
+	getAllAssociationsForDecay(): Association[] {
+		const rows = this.db
+			.prepare(`SELECT * FROM associations WHERE last_reinforced IS NOT NULL`)
+			.all() as AssociationRow[]
+		return rows.map((r) => ({
+			sourceId: r.source_id,
+			targetId: r.target_id,
+			strength: r.strength,
+			type: isAssociationType(r.type) ? r.type : "semantic",
+			lastReinforced: r.last_reinforced ?? null,
+			coAccessCount: r.co_access_count ?? 1,
+		}))
+	}
+
+	updateAssociationStrength(
+		sourceId: string,
+		targetId: string,
+		newStrength: number
+	): void {
+		this.db
+			.prepare(
+				`UPDATE associations SET strength = ? WHERE source_id = ? AND target_id = ?`
+			)
+			.run(newStrength, sourceId, targetId)
+	}
+
+	pruneWeakAssociations(threshold: number): number {
+		const result = this.db
+			.prepare(`DELETE FROM associations WHERE strength < ?`)
+			.run(threshold)
+		return result.changes
+	}
+
+	reinforceAssociation(
+		sourceId: string,
+		targetId: string,
+		newStrength: number
+	): void {
+		const now = Date.now()
+		this.db
+			.prepare(
+				`UPDATE associations SET strength = ?, last_reinforced = ?, co_access_count = co_access_count + 1 WHERE source_id = ? AND target_id = ?`
+			)
+			.run(newStrength, now, sourceId, targetId)
+	}
+
+	findMostSimilarMemory(
+		embedding: number[],
+		projectId?: string,
+		threshold = 0.4
+	): {
+		memoryId: string
+		similarity: number
+		embedding: number[]
+		ageDays: number
+		encodingStrength: number
+		accessCount: number
+	} | null {
+		// Get all embeddings + memory metadata
+		const condition = projectId ? "AND m.project_id = ?" : ""
+		const values = projectId ? [projectId] : []
+
+		const rows = this.db
+			.prepare(
+				`SELECT e.memory_id, e.vector, m.created_at, m.encoding_strength, m.access_count
+				 FROM embeddings e
+				 JOIN memories m ON e.memory_id = m.id
+				 WHERE 1=1 ${condition}`
+			)
+			.all(...values) as {
+			memory_id: string
+			vector: Uint8Array
+			created_at: number
+			encoding_strength: number
+			access_count: number
+		}[]
+
+		if (rows.length === 0) return null
+
+		let bestMatch: {
+			memoryId: string
+			similarity: number
+			embedding: number[]
+			ageDays: number
+			encodingStrength: number
+			accessCount: number
+		} | null = null
+
+		const now = Date.now()
+
+		for (const row of rows) {
+			const stored = [
+				...new Float32Array(
+					row.vector.buffer,
+					row.vector.byteOffset,
+					row.vector.byteLength / 4
+				),
+			]
+			const sim = this.cosineSimilarity(embedding, stored)
+			if (sim >= threshold && (!bestMatch || sim > bestMatch.similarity)) {
+				bestMatch = {
+					memoryId: row.memory_id,
+					similarity: sim,
+					embedding: stored,
+					ageDays: (now - row.created_at) / (24 * 60 * 60 * 1000),
+					encodingStrength: row.encoding_strength ?? 0.5,
+					accessCount: row.access_count ?? 0,
+				}
+			}
+		}
+
+		return bestMatch
+	}
+
+	private cosineSimilarity(a: number[], b: number[]): number {
+		if (a.length !== b.length) return 0
+		let dot = 0
+		let normA = 0
+		let normB = 0
+		for (let i = 0; i < a.length; i++) {
+			dot += a[i]! * b[i]!
+			normA += a[i]! * a[i]!
+			normB += b[i]! * b[i]!
+		}
+		const mag = Math.sqrt(normA) * Math.sqrt(normB)
+		return mag === 0 ? 0 : dot / mag
+	}
+
+	// ============================================================================
 	// Episodes (0.5.0 Episodic Memory)
 	// ============================================================================
 
@@ -1094,17 +1284,6 @@ export class LucidStorage {
 			encodingStrength: input.encodingStrength ?? 0.5,
 			createdAt: now,
 		}
-	}
-
-	/**
-	 * Get an episode by ID.
-	 */
-	getEpisode(id: string): Episode | null {
-		const row = this.db
-			.prepare(`SELECT * FROM episodes WHERE id = ?`)
-			.get(id) as EpisodeRow | null
-
-		return row ? this.rowToEpisode(row) : null
 	}
 
 	/**
@@ -1330,20 +1509,6 @@ export class LucidStorage {
 		return { id, path, name: name ?? null, lastActive: now, context: {} }
 	}
 
-	/**
-	 * Update project context.
-	 */
-	updateProjectContext(
-		projectId: string,
-		context: Record<string, unknown>
-	): void {
-		this.db
-			.prepare(`
-      UPDATE projects SET context = ?, last_active = ? WHERE id = ?
-    `)
-			.run(JSON.stringify(context), Date.now(), projectId)
-	}
-
 	// ============================================================================
 	// Location Intuitions
 	// ============================================================================
@@ -1413,7 +1578,7 @@ export class LucidStorage {
 	 *
 	 * Uses Rust implementation when available for consistency with core algorithms.
 	 */
-	inferActivityType(
+	private inferActivityType(
 		context: string,
 		toolName?: string,
 		explicit?: ActivityType
@@ -1676,7 +1841,7 @@ export class LucidStorage {
 				let oldestTime = Infinity
 				for (const [key, locs] of this.taskContextLocations) {
 					const lastAccess =
-						locs.length > 0 ? locs[locs.length - 1].lastAccessedAt : 0
+						locs.length > 0 ? locs[locs.length - 1]!.lastAccessedAt : 0
 					if (lastAccess < oldestTime) {
 						oldestTime = lastAccess
 						oldestKey = key
@@ -1879,7 +2044,7 @@ export class LucidStorage {
 	/**
 	 * Get a location by ID.
 	 */
-	getLocation(id: string): LocationIntuition | null {
+	private getLocation(id: string): LocationIntuition | null {
 		const row = this.db
 			.prepare(`
       SELECT * FROM location_intuitions WHERE id = ?
@@ -2185,7 +2350,7 @@ export class LucidStorage {
 	 * Biological analogy: Spreading activation through hippocampal networks.
 	 * When you think of one place, related places come to mind.
 	 */
-	getAssociatedLocations(
+	private getAssociatedLocations(
 		locationId: string,
 		limit = 10
 	): (LocationIntuition & { associationStrength: number })[] {
@@ -2494,7 +2659,7 @@ export class LucidStorage {
 	/**
 	 * Get a visual memory by ID.
 	 */
-	getVisualMemory(id: string): VisualMemory | null {
+	private getVisualMemory(id: string): VisualMemory | null {
 		const row = this.db
 			.prepare(`SELECT * FROM visual_memories WHERE id = ?`)
 			.get(id) as VisualMemoryRow | null
@@ -2527,7 +2692,7 @@ export class LucidStorage {
 	/**
 	 * Get access history for a visual memory (for base-level activation).
 	 */
-	getVisualAccessHistory(visualMemoryId: string): number[] {
+	private getVisualAccessHistory(visualMemoryId: string): number[] {
 		const rows = this.db
 			.prepare(`
       SELECT accessed_at FROM visual_access_history
@@ -2555,28 +2720,6 @@ export class LucidStorage {
       VALUES (?, ?, ?)
     `)
 			.run(visualMemoryId, blob, model)
-	}
-
-	/**
-	 * Get embedding for a visual memory.
-	 */
-	getVisualEmbedding(visualMemoryId: string): number[] | null {
-		const row = this.db
-			.prepare(
-				`SELECT vector FROM visual_embeddings WHERE visual_memory_id = ?`
-			)
-			.get(visualMemoryId) as { vector: Uint8Array } | null
-
-		if (!row) return null
-
-		// LOW-4: Use spread operator instead of Array.from() for better performance
-		return [
-			...new Float32Array(
-				row.vector.buffer,
-				row.vector.byteOffset,
-				row.vector.byteLength / 4
-			),
-		]
 	}
 
 	/**
@@ -2651,48 +2794,6 @@ export class LucidStorage {
 		const significanceScores = visuals.map((v) => v.significance)
 
 		return { visuals, accessHistories, emotionalWeights, significanceScores }
-	}
-
-	/**
-	 * Query visual memories with filters.
-	 */
-	queryVisualMemories(
-		options: {
-			mediaType?: VisualMediaType
-			sharedBy?: string
-			limit?: number
-			minSignificance?: number
-		} = {}
-	): VisualMemory[] {
-		const conditions: string[] = []
-		const values: (string | number)[] = []
-
-		if (options.mediaType) {
-			conditions.push("media_type = ?")
-			values.push(options.mediaType)
-		}
-		if (options.sharedBy) {
-			conditions.push("shared_by = ?")
-			values.push(options.sharedBy)
-		}
-		if (options.minSignificance !== undefined) {
-			conditions.push("significance >= ?")
-			values.push(options.minSignificance)
-		}
-
-		const where =
-			conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
-		const limit = options.limit ?? 100
-
-		const rows = this.db
-			.prepare(`
-      SELECT * FROM visual_memories ${where}
-      ORDER BY received_at DESC
-      LIMIT ?
-    `)
-			.all(...values, limit) as VisualMemoryRow[]
-
-		return rows.map((r) => this.rowToVisualMemory(r))
 	}
 
 	/**

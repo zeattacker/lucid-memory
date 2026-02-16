@@ -20,7 +20,11 @@
 
 import {
 	ActivationConfig,
+	AssociationDecayConfig,
 	EpisodicMemoryConfig,
+	InstanceNoiseConfig,
+	PrpConfig,
+	ReconsolidationConfig,
 	SessionConfig,
 	WorkingMemoryConfig,
 } from "./config.ts"
@@ -176,8 +180,45 @@ export class LucidRetrieval {
 	private readonly autoAssociationMinSimilarity = 0.4 // Minimum similarity to create link
 	private readonly autoAssociationRecencyMs = 30 * 60 * 1000 // Only link to memories from last 30 min
 
+	// PRP State (0.6.0 - Protein Synthesis Tagging)
+	// Ephemeral, in-process only (like working memory). Not persisted.
+	private prpState = {
+		active: false,
+		strength: 0,
+		activatedAt: 0,
+		activatedBy: "",
+	}
+
 	constructor(storageConfig?: StorageConfig) {
 		this.storage = new LucidStorage(storageConfig)
+	}
+
+	// PRP helpers (0.6.0)
+	private getPrpModifier(): number {
+		if (!PrpConfig.enabled || !this.prpState.active) return 0
+		const elapsed = Date.now() - this.prpState.activatedAt
+		const decay = 0.5 ** (elapsed / PrpConfig.halfLifeMs)
+		const modifier = this.prpState.strength * decay
+		if (modifier < 0.01) {
+			this.prpState.active = false
+			return 0
+		}
+		return modifier
+	}
+
+	private activatePrp(memoryId: string, importance: number): void {
+		if (!PrpConfig.enabled || importance < PrpConfig.activationThreshold) return
+		const newStrength = Math.min(
+			(importance - PrpConfig.activationThreshold) * 1.67,
+			PrpConfig.maxStrength
+		)
+		if (this.prpState.active && this.getPrpModifier() > newStrength) return
+		this.prpState = {
+			active: true,
+			strength: newStrength,
+			activatedAt: Date.now(),
+			activatedBy: memoryId,
+		}
 	}
 
 	/**
@@ -235,6 +276,15 @@ export class LucidRetrieval {
 	 * LOW-5: Explicit cleanup of ephemeral state on shutdown.
 	 */
 	close(): void {
+		// End active sessions before clearing cache
+		for (const entry of this.sessionCache.values()) {
+			try {
+				this.storage.endSession(entry.sessionId)
+			} catch {
+				// Best-effort during shutdown
+			}
+		}
+
 		// Clear working memory
 		this.workingMemory.clear()
 
@@ -519,6 +569,7 @@ export class LucidRetrieval {
 
 		// Get or create session from storage
 		const sessionId = this.storage.getOrCreateSession(projectId)
+		this.storage.touchSession(sessionId)
 
 		// Update cache
 		this.sessionCache.set(cacheKey, { sessionId, touchedAt: now })
@@ -597,7 +648,7 @@ export class LucidRetrieval {
 					const history =
 						accessHistories[memoryIndexMap.get(memory.id) ?? -1] ?? []
 					// Phase 2: Use session-aware decay rate
-					const lastAccess = history.length > 0 ? history[0] : 0
+					const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
 					const decayRate = this.getSessionDecayRate(lastAccess, now)
 					const baseLevel =
 						shouldUseNative && nativeModule
@@ -646,7 +697,7 @@ export class LucidRetrieval {
 				(memory, _i) => {
 					const history =
 						accessHistories[memoryIndexMap.get(memory.id) ?? -1] ?? []
-					const lastAccess = history.length > 0 ? history[0] : 0
+					const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
 					const decayRate = this.getSessionDecayRate(lastAccess, now)
 					const baseLevel =
 						shouldUseNative && nativeModule
@@ -689,6 +740,8 @@ export class LucidRetrieval {
 		const emotionalWeights: number[] = []
 		const decayRates: number[] = []
 		const workingMemoryBoosts: number[] = []
+		const lastAccessTimes: number[] = []
+		const wmActivatedTimes: number[] = []
 		const memoryIdToIndex = new Map<string, number>()
 
 		const now = Date.now()
@@ -724,13 +777,38 @@ export class LucidRetrieval {
 				)
 			)
 
-			// Phase 2: Session Decay Modulation
-			// Use session-aware decay rate instead of fixed config.decay
-			const lastAccess = history.length > 0 ? history[0] : 0
-			decayRates.push(this.getSessionDecayRate(lastAccess, now))
+			// Collect raw data for batch computation below
+			const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
+			lastAccessTimes.push(lastAccess)
+			wmActivatedTimes.push(this.workingMemory.get(memory.id)?.activatedAt ?? 0)
+		}
 
-			// Phase 1: Working Memory Boost (now computed here, applied in Rust)
-			workingMemoryBoosts.push(this.getWorkingMemoryBoost(memory.id, now))
+		// Batch compute decay rates and working memory boosts
+		if (shouldUseNative && nativeModule && lastAccessTimes.length > 0) {
+			decayRates.push(
+				...nativeModule.computeSessionDecayRateBatch(lastAccessTimes, now)
+			)
+			workingMemoryBoosts.push(
+				...nativeModule.computeWorkingMemoryBoostBatch(
+					wmActivatedTimes.map((t) => t || now),
+					now,
+					{
+						decayMs: this.wmDecayMs,
+						maxBoost: this.wmMaxBoost,
+					}
+				)
+			)
+			// Zero out boosts for memories not in working memory
+			for (let i = 0; i < wmActivatedTimes.length; i++) {
+				if (!wmActivatedTimes[i]) workingMemoryBoosts[i] = 1.0
+			}
+		} else {
+			for (let i = 0; i < lastAccessTimes.length; i++) {
+				decayRates.push(this.getSessionDecayRate(lastAccessTimes[i]!, now))
+				workingMemoryBoosts.push(
+					this.getWorkingMemoryBoost(memoriesWithEmbeddings[i]!.id, now)
+				)
+			}
 		}
 
 		// HIGH-7: Validate array alignment - all parallel arrays must have same length
@@ -781,6 +859,31 @@ export class LucidRetrieval {
 			)
 		}
 
+		// Instance noise (0.6.0) — per-memory noise based on encoding strength
+		if (InstanceNoiseConfig.enabled) {
+			for (const candidate of candidates) {
+				const es = candidate.memory.encodingStrength ?? 0.5
+				const instanceNoise =
+					shouldUseNative && nativeModule
+						? nativeModule.computeInstanceNoise(
+								es,
+								InstanceNoiseConfig.noiseBase
+							)
+						: InstanceNoiseConfig.noiseBase * (2.0 - es)
+				const adjustedProb =
+					shouldUseNative && nativeModule
+						? nativeModule.retrievalProbability(
+								candidate.score,
+								config.threshold,
+								instanceNoise
+							)
+						: 1.0 /
+							(1.0 +
+								Math.exp((config.threshold - candidate.score) / instanceNoise))
+				candidate.probability = adjustedProb
+			}
+		}
+
 		// Phase 5: Episodic temporal spreading
 		if (EpisodicMemoryConfig.enabled) {
 			candidates = this.applyTemporalSpreading(
@@ -816,6 +919,37 @@ export class LucidRetrieval {
 				console.error("[lucid] Failed to record access:", error)
 			}
 			this.updateWorkingMemory(candidate.memory.id, accessNow)
+		}
+
+		// Association reinforcement (0.6.0) — co-retrieved memories strengthen links
+		if (AssociationDecayConfig.enabled && finalCandidates.length > 1) {
+			try {
+				const topIds = finalCandidates.slice(0, 5).map((c) => c.memory.id)
+				for (let i = 0; i < topIds.length; i++) {
+					for (let j = i + 1; j < topIds.length; j++) {
+						const assocs = this.storage.getAssociations(topIds[i]!)
+						const existing = assocs.find(
+							(a) =>
+								(a.sourceId === topIds[i] && a.targetId === topIds[j]) ||
+								(a.sourceId === topIds[j] && a.targetId === topIds[i])
+						)
+						if (existing) {
+							const boosted =
+								shouldUseNative && nativeModule
+									? nativeModule.reinforceAssociation(existing.strength, null)
+									: Math.min(existing.strength + 0.05, 1.0)
+							this.storage.reinforceAssociation(
+								existing.sourceId,
+								existing.targetId,
+								boosted
+							)
+						}
+					}
+				}
+				this.associationCache = null
+			} catch (error) {
+				console.error("[lucid] Association reinforcement failed:", error)
+			}
 		}
 
 		return finalCandidates
@@ -939,11 +1073,13 @@ export class LucidRetrieval {
 			const boostedSimilarity = Math.min(similarity * wmBoost, 1.0)
 
 			// Apply nonlinear activation (MINERVA 2) to boosted similarity
-			const probeActivation = boostedSimilarity ** 3
+			const probeActivation = nativeModule
+				? nativeModule.nonlinearActivation(boostedSimilarity)
+				: boostedSimilarity ** 3
 
 			// Compute base-level activation with session-aware decay (Phase 2)
 			const history = memoryAccessHistories[i] ?? []
-			const lastAccess = history.length > 0 ? history[0] : 0
+			const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
 			const decayRate = this.getSessionDecayRate(lastAccess, now)
 			const baseLevel = computeBaseLevelTS(history, now, decayRate)
 
@@ -1039,16 +1175,143 @@ export class LucidRetrieval {
 	): Promise<Memory> {
 		// Generate gist if not provided
 		const gist = options.gist ?? generateGist(content, 150)
+		const ew = options.emotionalWeight ?? 0.5
+
+		// Reconsolidation check (0.6.0) — before creating a new memory,
+		// check if similar content already exists and route to PE zone
+		if (ReconsolidationConfig.enabled && this.embedder) {
+			try {
+				const embedding = await this.embedder.embed(content)
+				const similar = this.storage.findMostSimilarMemory(
+					embedding.vector,
+					options.projectId,
+					ReconsolidationConfig.similarityThreshold
+				)
+
+				if (similar) {
+					const surprise =
+						shouldUseNative && nativeModule
+							? nativeModule.computeSurprise(
+									similar.embedding,
+									embedding.vector,
+									similar.ageDays,
+									similar.encodingStrength,
+									0.5
+								)
+							: 1.0 -
+								this.storage["cosineSimilarity"](
+									similar.embedding,
+									embedding.vector
+								)
+
+					// Compute effective thresholds modulated by memory age and access count
+					let thetaLow: number = ReconsolidationConfig.thetaLow
+					let thetaHigh: number = ReconsolidationConfig.thetaHigh
+					if (shouldUseNative && nativeModule) {
+						const thresholds = nativeModule.computeEffectiveThresholds(
+							thetaLow,
+							thetaHigh,
+							similar.accessCount,
+							similar.ageDays,
+							{
+								strengthShift: ReconsolidationConfig.strengthShift,
+								ageShift: ReconsolidationConfig.ageShift,
+								baselineCount: ReconsolidationConfig.baselineCount,
+								baselineDays: ReconsolidationConfig.baselineDays,
+							}
+						)
+						thetaLow = thresholds[0]!
+						thetaHigh = thresholds[1]!
+					} else {
+						// TS fallback: age shifts θ_low up, use shifts θ_high down
+						const ageFactor = Math.min(
+							similar.ageDays / ReconsolidationConfig.baselineDays,
+							5.0
+						)
+						thetaLow += ReconsolidationConfig.ageShift * ageFactor
+						const useFactor = Math.min(
+							similar.accessCount / ReconsolidationConfig.baselineCount,
+							3.0
+						)
+						thetaHigh -= ReconsolidationConfig.strengthShift * useFactor
+						thetaHigh = Math.max(thetaHigh, thetaLow + 0.05)
+					}
+
+					const zone =
+						shouldUseNative && nativeModule
+							? nativeModule.peZone(surprise, thetaLow, thetaHigh)
+							: surprise < thetaLow
+								? "reinforce"
+								: surprise < thetaHigh
+									? "reconsolidate"
+									: "new_trace"
+
+					if (zone === "reinforce") {
+						this.storage.recordAccess(similar.memoryId)
+						this.storage.updateEncodingStrength(
+							similar.memoryId,
+							Math.min(similar.encodingStrength + 0.05, 1.0)
+						)
+						const existing = this.storage.getMemory(similar.memoryId)
+						if (existing) return existing
+					}
+
+					if (zone === "reconsolidate") {
+						this.storage.updateMemory(similar.memoryId, {
+							content,
+							gist,
+						})
+						this.storage.updateConsolidationState(
+							similar.memoryId,
+							"reconsolidating"
+						)
+						this.storage.storeEmbedding(
+							similar.memoryId,
+							embedding.vector,
+							embedding.model
+						)
+						const updated = this.storage.getMemory(similar.memoryId)
+						if (updated) return updated
+					}
+					// zone === "new_trace": fall through to normal store
+				}
+			} catch (error) {
+				console.error("[lucid] Reconsolidation check failed:", error)
+			}
+		}
+
+		// Compute encoding strength (0.6.0)
+		const prpModifier = this.getPrpModifier()
+		const attention = ew > 0.7 ? 1.0 : 0.0
+		let encodingStrength: number
+		if (shouldUseNative && nativeModule) {
+			encodingStrength = nativeModule.computeEncodingStrength(
+				attention,
+				ew,
+				1,
+				null
+			)
+		} else {
+			encodingStrength = 0.3 + attention * 0.2 + ew * 0.2
+		}
+		encodingStrength = Math.min(encodingStrength + prpModifier, 1.0)
 
 		// Store the memory
 		const memory = this.storage.storeMemory({
 			content,
 			type: options.type ?? "learning",
 			gist,
-			emotionalWeight: options.emotionalWeight ?? 0.5,
+			emotionalWeight: ew,
 			projectId: options.projectId,
 			tags: options.tags,
+			encodingStrength,
+			encodingContext: {
+				projectId: options.projectId,
+			},
 		})
+
+		// Activate PRP for high-importance memories
+		this.activatePrp(memory.id, ew)
 
 		// Generate and store embedding if embedder is available
 		if (this.embedder) {
@@ -1061,7 +1324,7 @@ export class LucidRetrieval {
 				)
 
 				// Auto-associate with recent similar memories
-				await this.createAutoAssociations(
+				this.createAutoAssociations(
 					memory.id,
 					embedding.vector,
 					options.projectId
@@ -1102,32 +1365,59 @@ export class LucidRetrieval {
 				// Create temporal links to prior events in this episode
 				if (event) {
 					const events = this.storage.getEpisodeEvents(ep.id)
-					for (const priorEvent of events) {
-						if (priorEvent.id === event.id) continue
-						const distance = event.position - priorEvent.position
-						if (distance > EpisodicMemoryConfig.maxTemporalDistance) continue
 
-						const decayFactor = Math.exp(
-							-distance * EpisodicMemoryConfig.distanceDecayRate
-						)
+					if (shouldUseNative && nativeModule && events.length > 1) {
+						// Use Rust createEpisodeLinks for batch link generation
+						const memoryIndices = events.map((e) => e.position)
+						const links = nativeModule.createEpisodeLinks(memoryIndices)
+						for (const link of links) {
+							const sourceEvent = events[link.sourcePosition]
+							const targetEvent = events[link.targetPosition]
+							if (!sourceEvent || !targetEvent) continue
 
-						// Forward link: prior → new
-						this.storage.createTemporalLink({
-							episodeId: ep.id,
-							sourceEventId: priorEvent.id,
-							targetEventId: event.id,
-							strength: EpisodicMemoryConfig.forwardLinkStrength * decayFactor,
-							direction: "forward",
-						})
+							this.storage.createTemporalLink({
+								episodeId: ep.id,
+								sourceEventId: sourceEvent.id,
+								targetEventId: targetEvent.id,
+								strength: link.forwardStrength,
+								direction: "forward",
+							})
+							this.storage.createTemporalLink({
+								episodeId: ep.id,
+								sourceEventId: targetEvent.id,
+								targetEventId: sourceEvent.id,
+								strength: link.backwardStrength,
+								direction: "backward",
+							})
+						}
+					} else {
+						// TypeScript fallback
+						for (const priorEvent of events) {
+							if (priorEvent.id === event.id) continue
+							const distance = event.position - priorEvent.position
+							if (distance > EpisodicMemoryConfig.maxTemporalDistance) continue
 
-						// Backward link: new → prior
-						this.storage.createTemporalLink({
-							episodeId: ep.id,
-							sourceEventId: event.id,
-							targetEventId: priorEvent.id,
-							strength: EpisodicMemoryConfig.backwardLinkStrength * decayFactor,
-							direction: "backward",
-						})
+							const decayFactor = Math.exp(
+								-distance * EpisodicMemoryConfig.distanceDecayRate
+							)
+
+							this.storage.createTemporalLink({
+								episodeId: ep.id,
+								sourceEventId: priorEvent.id,
+								targetEventId: event.id,
+								strength:
+									EpisodicMemoryConfig.forwardLinkStrength * decayFactor,
+								direction: "forward",
+							})
+							this.storage.createTemporalLink({
+								episodeId: ep.id,
+								sourceEventId: event.id,
+								targetEventId: priorEvent.id,
+								strength:
+									EpisodicMemoryConfig.backwardLinkStrength * decayFactor,
+								direction: "backward",
+							})
+						}
 					}
 				}
 			} catch (error) {
@@ -1148,11 +1438,11 @@ export class LucidRetrieval {
 	 *
 	 * Association strength is based on semantic similarity (0.4-1.0 → 0.4-1.0 strength).
 	 */
-	private async createAutoAssociations(
+	private createAutoAssociations(
 		memoryId: string,
 		embedding: number[],
 		projectId?: string
-	): Promise<void> {
+	): void {
 		const now = Date.now()
 		const cutoff = now - this.autoAssociationRecencyMs
 
@@ -1455,7 +1745,7 @@ export class LucidRetrieval {
 				(visual, i) => {
 					const history = accessHistories[i] ?? []
 					// Phase 2: Session-aware decay rate
-					const lastAccess = history.length > 0 ? history[0] : 0
+					const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
 					const decayRate = this.getSessionDecayRate(lastAccess, now)
 					const baseLevel =
 						shouldUseNative && nativeModule
@@ -1588,10 +1878,12 @@ export class LucidRetrieval {
 			if (!visual || !embedding) continue
 
 			const similarity = tsCosineSimilarity(probeVector, embedding)
-			const probeActivation = similarity ** 3
+			const probeActivation = nativeModule
+				? nativeModule.nonlinearActivation(similarity)
+				: similarity ** 3
 			const history = visualAccessHistories[i] ?? []
 			// Phase 2: Session-aware decay rate
-			const lastAccess = history.length > 0 ? history[0] : 0
+			const lastAccess = (history.length > 0 ? history[0] : 0) ?? 0
 			const decayRate = this.getSessionDecayRate(lastAccess, now)
 			const baseLevel = computeBaseLevelTS(history, now, decayRate)
 

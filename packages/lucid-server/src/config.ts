@@ -55,7 +55,7 @@ export const InstanceNoiseConfig = {
 	noiseBase: 0.25,
 
 	/** Feature flag */
-	enabled: false,
+	enabled: true,
 } as const
 
 // ============================================================================
@@ -100,7 +100,7 @@ export const AssociationDecayConfig = {
 	pruneThreshold: 0.1,
 
 	/** Feature flag */
-	enabled: false,
+	enabled: true,
 } as const
 
 // ============================================================================
@@ -165,20 +165,83 @@ export const EpisodicMemoryConfig = {
 // ============================================================================
 
 export const ConsolidationConfig = {
-	/** Interval between consolidation cycles in ms (2 hours) */
-	intervalMs: 2 * 60 * 60 * 1000,
+	/** Micro-consolidation interval in ms (5 minutes) */
+	microIntervalMs: 5 * 60 * 1000,
+
+	/** Full consolidation interval in ms (1 hour) */
+	fullIntervalMs: 60 * 60 * 1000,
+
+	/** Encoding strength multiplier for recently accessed memories */
+	microStrengthenFactor: 1.1,
+
+	/** Encoding strength decay for stale memories per cycle */
+	verbatimDecayFactor: 0.98,
+
+	/** Window for "recently accessed" (30 minutes) */
+	recentAccessWindowMs: 30 * 60 * 1000,
+
+	/** Days without access before verbatim decay applies */
+	staleThresholdDays: 7,
+
+	/** Minimum encoding strength floor */
+	encodingStrengthFloor: 0.1,
 
 	/** Number of memories to process per consolidation cycle */
 	batchSize: 100,
 
-	/** Weight for "need" in EVB calculation */
-	evbNeedWeight: 1.0,
+	/** Feature flag */
+	enabled: true,
+} as const
 
-	/** Weight for "gain" in EVB calculation */
-	evbGainWeight: 1.0,
+// ============================================================================
+// Reconsolidation (Nader et al. 2000, Lee 2009)
+// ============================================================================
+
+export const ReconsolidationConfig = {
+	/** Lower PE threshold (below = reinforce existing) */
+	thetaLow: 0.1,
+
+	/** Upper PE threshold (above = create new trace) */
+	thetaHigh: 0.55,
+
+	/** Sigmoid steepness for reconsolidation probability */
+	beta: 10.0,
+
+	/** How much encoding strength shifts θ_high down */
+	strengthShift: 0.15,
+
+	/** How much memory age shifts θ_low up */
+	ageShift: 0.05,
+
+	/** Baseline access count for modulation normalization */
+	baselineCount: 5.0,
+
+	/** Baseline days for modulation normalization */
+	baselineDays: 1.0,
+
+	/** Minimum similarity to consider reconsolidation */
+	similarityThreshold: 0.4,
 
 	/** Feature flag */
-	enabled: false,
+	enabled: true,
+} as const
+
+// ============================================================================
+// Protein Synthesis (PRP) Tagging (Frey & Morris 1997)
+// ============================================================================
+
+export const PrpConfig = {
+	/** PRP half-life in ms (90 minutes) */
+	halfLifeMs: 90 * 60 * 1000,
+
+	/** Emotional weight threshold to activate PRP */
+	activationThreshold: 0.7,
+
+	/** Maximum PRP-derived encoding boost */
+	maxStrength: 0.5,
+
+	/** Feature flag */
+	enabled: true,
 } as const
 
 // ============================================================================
@@ -262,6 +325,8 @@ export const CognitiveConfig = {
 	encodingSpecificity: EncodingSpecificityConfig,
 	episodicMemory: EpisodicMemoryConfig,
 	consolidation: ConsolidationConfig,
+	reconsolidation: ReconsolidationConfig,
+	prp: PrpConfig,
 	emotionalDecay: EmotionalDecayConfig,
 	activation: ActivationConfig,
 	session: SessionConfig,
@@ -282,6 +347,8 @@ export function isFeatureEnabled(
 		| "encodingSpecificity"
 		| "episodicMemory"
 		| "consolidation"
+		| "reconsolidation"
+		| "prp"
 		| "emotionalDecay"
 ): boolean {
 	return CognitiveConfig[feature].enabled
@@ -296,6 +363,8 @@ export function getEnabledFeatures(): string[] {
 		"encodingSpecificity",
 		"episodicMemory",
 		"consolidation",
+		"reconsolidation",
+		"prp",
 		"emotionalDecay",
 	] as const
 	return features.filter((f) => CognitiveConfig[f].enabled)

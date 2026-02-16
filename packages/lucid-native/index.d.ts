@@ -24,6 +24,19 @@ export declare function computeBaseLevel(
 ): number
 
 /**
+ * Compute effective thresholds with boundary modulators.
+ *
+ * Returns `[effective_theta_low, effective_theta_high]`.
+ */
+export declare function computeEffectiveThresholds(
+	thetaLow: number,
+	thetaHigh: number,
+	accessCount: number,
+	daysSinceLastAccess: number,
+	config?: JsReconsolidationConfig | undefined | null
+): Array<number>
+
+/**
  * Compute encoding strength for a memory.
  *
  * Stronger encoding = more reliable retrieval.
@@ -77,7 +90,7 @@ export declare function computeSurprise(
 /**
  * Compute working memory boost for a memory.
  *
- * Returns boost in range [1.0, 1.0 + max_boost].
+ * Returns boost in range [1.0, 1.0 + `max_boost`].
  * Recently activated memories get higher boost.
  */
 export declare function computeWorkingMemoryBoost(
@@ -112,6 +125,26 @@ export declare function createEpisodeLinks(
 ): Array<JsTemporalLink>
 
 /**
+ * Embed a single text. Returns { vector, model, dimensions }.
+ *
+ * # Errors
+ *
+ * Returns an error if the model is not loaded or embedding fails.
+ */
+export declare function embed(text: string): JsEmbeddingResult
+
+/**
+ * Embed a batch of texts.
+ *
+ * # Errors
+ *
+ * Returns an error if the model is not loaded or embedding fails.
+ */
+export declare function embedBatch(
+	texts: Array<string>
+): Array<JsEmbeddingResult>
+
+/**
  * Find temporally adjacent memories.
  *
  * direction: "before", "after", or "both"
@@ -122,6 +155,15 @@ export declare function findTemporalNeighbors(
 	direction: string,
 	limit: number
 ): Array<JsTemporalNeighbor>
+
+/** Check if model files exist at the given (or default) paths. */
+export declare function isEmbeddingModelAvailable(
+	modelPath?: string | undefined | null,
+	tokenizerPath?: string | undefined | null
+): boolean
+
+/** Check if the embedding model is currently loaded. */
+export declare function isEmbeddingModelLoaded(): boolean
 
 /** Result of activity type inference. */
 export interface JsActivityInference {
@@ -163,6 +205,16 @@ export interface JsAssociationDecayConfig {
 	reinforcementBoost?: number
 	/** Prune threshold (default: 0.1) */
 	pruneThreshold?: number
+}
+
+/** Embedding result returned to JavaScript. */
+export interface JsEmbeddingResult {
+	/** The embedding vector (768 dimensions). */
+	vector: Array<number>
+	/** Model name. */
+	model: string
+	/** Number of dimensions. */
+	dimensions: number
 }
 
 /** Emotional context of a visual memory. */
@@ -281,6 +333,24 @@ export interface JsPruningCandidate {
 	reason: string
 	/** Pruning score */
 	score: number
+}
+
+/** Configuration for reconsolidation calculations. */
+export interface JsReconsolidationConfig {
+	/** Lower PE threshold (default: 0.10) */
+	thetaLow?: number
+	/** Upper PE threshold (default: 0.55) */
+	thetaHigh?: number
+	/** Sigmoid steepness (default: 10.0) */
+	beta?: number
+	/** How much encoding strength shifts `θ_high` down (default: 0.15) */
+	strengthShift?: number
+	/** How much memory age shifts `θ_low` up (default: 0.05) */
+	ageShift?: number
+	/** Baseline access count for normalization (default: 5.0) */
+	baselineCount?: number
+	/** Baseline days since access for normalization (default: 1.0) */
+	baselineDays?: number
 }
 
 /** Result candidate from retrieval. */
@@ -500,6 +570,21 @@ export interface JsWorkingMemoryConfig {
 	maxBoost?: number
 }
 
+/**
+ * Load the BGE-base-en-v1.5 embedding model from disk.
+ *
+ * Call this once at startup. Subsequent calls are no-ops.
+ * Returns true if the model is loaded (or was already loaded).
+ *
+ * # Errors
+ *
+ * Returns an error if model files are missing or ONNX Runtime fails to load.
+ */
+export declare function loadEmbeddingModel(
+	modelPath?: string | undefined | null,
+	tokenizerPath?: string | undefined | null
+): boolean
+
 /** Compute association strength with multiplier based on context. */
 export declare function locationAssociationStrength(
 	currentCount: number,
@@ -559,6 +644,29 @@ export declare function locationIsWellKnown(
  * A(i) = S(i)³
  */
 export declare function nonlinearActivation(similarity: number): number
+
+/**
+ * Determine prediction error zone.
+ *
+ * Returns `"reinforce"`, `"reconsolidate"`, or `"new_trace"`.
+ */
+export declare function peZone(
+	peAbs: number,
+	thetaLowEff: number,
+	thetaHighEff: number
+): string
+
+/**
+ * Compute reconsolidation probability using dual-sigmoid bell curve.
+ *
+ * Returns probability of reconsolidation (peaks in the middle PE zone).
+ */
+export declare function reconsolidationProbability(
+	peAbs: number,
+	thetaLow: number,
+	thetaHigh: number,
+	beta: number
+): number
 
 /** Reinforce an association (co-access boost). */
 export declare function reinforceAssociation(

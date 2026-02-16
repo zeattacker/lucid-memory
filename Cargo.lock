@@ -876,7 +876,7 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lucid-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "criterion",
  "dirs 6.0.0",
@@ -892,7 +892,7 @@ dependencies = [
 
 [[package]]
 name = "lucid-napi"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "lucid-core",
  "napi",
@@ -904,7 +904,7 @@ dependencies = [
 
 [[package]]
 name = "lucid-perception"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "dirs 5.0.1",
  "image",
@@ -922,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "lucid-perception-napi"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "lucid-perception",
  "napi",

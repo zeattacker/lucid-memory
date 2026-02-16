@@ -602,6 +602,111 @@ pub fn should_prune_association(strength: f64, config: &AssociationDecayConfig) 
 }
 
 // ============================================================================
+// Reconsolidation (Nader et al. 2000, Lee 2009)
+// ============================================================================
+
+/// Default thresholds for reconsolidation zones.
+pub const THETA_LOW: f64 = 0.10;
+/// Upper threshold for reconsolidation zone.
+pub const THETA_HIGH: f64 = 0.55;
+/// Steepness of reconsolidation sigmoid.
+pub const BETA_RECON: f64 = 10.0;
+/// How much encoding strength shifts `θ_high` down.
+pub const STRENGTH_SHIFT: f64 = 0.15;
+/// How much memory age shifts `θ_low` up.
+pub const AGE_SHIFT: f64 = 0.05;
+
+/// Configuration for reconsolidation calculations.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReconsolidationConfig {
+	/// Lower PE threshold (below = reinforce)
+	pub theta_low: f64,
+	/// Upper PE threshold (above = new trace)
+	pub theta_high: f64,
+	/// Sigmoid steepness
+	pub beta: f64,
+	/// How much encoding strength shifts `θ_high` down
+	pub strength_shift: f64,
+	/// How much memory age (days) shifts `θ_low` up
+	pub age_shift: f64,
+	/// Baseline access count for modulation normalization
+	pub baseline_count: f64,
+	/// Baseline days since access for modulation normalization
+	pub baseline_days: f64,
+}
+
+impl Default for ReconsolidationConfig {
+	fn default() -> Self {
+		Self {
+			theta_low: THETA_LOW,
+			theta_high: THETA_HIGH,
+			beta: BETA_RECON,
+			strength_shift: STRENGTH_SHIFT,
+			age_shift: AGE_SHIFT,
+			baseline_count: 5.0,
+			baseline_days: 1.0,
+		}
+	}
+}
+
+/// Compute reconsolidation probability using dual-sigmoid bell curve.
+///
+/// `P = σ(β × (|δ| - θ_low)) × (1 - σ(β × (|δ| - θ_high)))`
+///
+/// Peaks at ~0.35 in the center of the reconsolidation zone.
+/// Below `θ_low`: near 0 (reinforce). Above `θ_high`: near 0 (new trace).
+/// Between: elevated probability of reconsolidation.
+#[inline]
+#[must_use]
+pub fn reconsolidation_probability(pe_abs: f64, theta_low: f64, theta_high: f64, beta: f64) -> f64 {
+	// σ(x) = 1/(1+e^(-x))
+	let sig_low = 1.0 / (1.0 + (-beta * (pe_abs - theta_low)).exp());
+	let sig_high = 1.0 / (1.0 + (-beta * (pe_abs - theta_high)).exp());
+	sig_low * (1.0 - sig_high)
+}
+
+/// Compute effective thresholds with boundary modulators.
+///
+/// - `θ_low` increases with memory age (dormant memories harder to destabilize)
+/// - `θ_high` decreases with use count (well-used memories reconsolidate more easily)
+#[must_use]
+pub fn compute_effective_thresholds(
+	theta_low: f64,
+	theta_high: f64,
+	access_count: u32,
+	days_since_last_access: f64,
+	config: &ReconsolidationConfig,
+) -> (f64, f64) {
+	// θ_low shifts up with age: dormant memories need more prediction error
+	let age_factor = (days_since_last_access / config.baseline_days).min(5.0);
+	let effective_low = config.age_shift.mul_add(age_factor, theta_low);
+
+	// θ_high shifts down with use: well-practiced memories reconsolidate more easily
+	#[allow(clippy::cast_precision_loss)]
+	let use_factor = (f64::from(access_count) / config.baseline_count).min(3.0);
+	let effective_high = (-config.strength_shift).mul_add(use_factor, theta_high);
+
+	// Ensure low < high (at least 0.05 gap)
+	let effective_high = effective_high.max(effective_low + 0.05);
+
+	(effective_low, effective_high)
+}
+
+/// Determine prediction error zone.
+///
+/// Returns `"reinforce"`, `"reconsolidate"`, or `"new_trace"`.
+#[must_use]
+pub fn pe_zone(pe_abs: f64, theta_low_eff: f64, theta_high_eff: f64) -> &'static str {
+	if pe_abs < theta_low_eff {
+		"reinforce"
+	} else if pe_abs < theta_high_eff {
+		"reconsolidate"
+	} else {
+		"new_trace"
+	}
+}
+
+// ============================================================================
 // Ranking and Filtering
 // ============================================================================
 
@@ -760,6 +865,72 @@ mod tests {
 		let config = AssociationDecayConfig::default();
 		assert!(should_prune_association(0.05, &config));
 		assert!(!should_prune_association(0.15, &config));
+	}
+
+	// Reconsolidation tests
+
+	#[test]
+	fn test_reconsolidation_probability_center() {
+		// Center of reconsolidation zone should have high probability
+		let center = (THETA_LOW + THETA_HIGH) / 2.0;
+		let prob = reconsolidation_probability(center, THETA_LOW, THETA_HIGH, BETA_RECON);
+		assert!(prob > 0.2, "Center of zone should have meaningful probability, got {prob}");
+	}
+
+	#[test]
+	fn test_reconsolidation_probability_below_low() {
+		// pe_zone uses hard boundary (pe < θ_low → reinforce)
+		// The sigmoid gives a soft falloff, so at 0.01 it's still ~0.29
+		// At pe=0, the sigmoid suppresses more fully
+		let prob_zero = reconsolidation_probability(0.0, THETA_LOW, THETA_HIGH, BETA_RECON);
+		let prob_center = reconsolidation_probability(0.3, THETA_LOW, THETA_HIGH, BETA_RECON);
+		assert!(prob_zero < prob_center, "pe=0 should have lower probability than center");
+	}
+
+	#[test]
+	fn test_reconsolidation_probability_above_high() {
+		// Well above θ_high should have near-zero probability
+		let prob = reconsolidation_probability(0.9, THETA_LOW, THETA_HIGH, BETA_RECON);
+		assert!(prob < 0.1, "Above θ_high should have low probability, got {prob}");
+	}
+
+	#[test]
+	fn test_pe_zone_reinforce() {
+		assert_eq!(pe_zone(0.05, THETA_LOW, THETA_HIGH), "reinforce");
+	}
+
+	#[test]
+	fn test_pe_zone_reconsolidate() {
+		assert_eq!(pe_zone(0.30, THETA_LOW, THETA_HIGH), "reconsolidate");
+	}
+
+	#[test]
+	fn test_pe_zone_new_trace() {
+		assert_eq!(pe_zone(0.60, THETA_LOW, THETA_HIGH), "new_trace");
+	}
+
+	#[test]
+	fn test_effective_thresholds_age_shifts_low_up() {
+		let config = ReconsolidationConfig::default();
+		let (low_fresh, _) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 1, 0.1, &config);
+		let (low_old, _) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 1, 5.0, &config);
+		assert!(low_old > low_fresh, "Old memories should have higher θ_low");
+	}
+
+	#[test]
+	fn test_effective_thresholds_use_shifts_high_down() {
+		let config = ReconsolidationConfig::default();
+		let (_, high_new) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 1, 1.0, &config);
+		let (_, high_used) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 15, 1.0, &config);
+		assert!(high_used < high_new, "Well-used memories should have lower θ_high");
+	}
+
+	#[test]
+	fn test_effective_thresholds_maintain_gap() {
+		let config = ReconsolidationConfig::default();
+		// Extreme values that could collapse the gap
+		let (low, high) = compute_effective_thresholds(THETA_LOW, THETA_HIGH, 100, 100.0, &config);
+		assert!(high >= low + 0.05, "Must maintain minimum gap: low={low}, high={high}");
 	}
 
 	// Original tests

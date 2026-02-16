@@ -85,9 +85,9 @@ Replaced Ollama dependency with an in-process BGE-base-en-v1.5 embedding model v
 
 ## 0.6.0 — Memory Consolidation
 
-**Status:** Planned
+**Status:** Shipped (2026-02-15)
 
-The system has `ConsolidationState` (Fresh → Consolidating → Consolidated) but no active consolidation process. Real memory systems benefit from offline consolidation during "sleep."
+Lucid Memory is now a self-maintaining memory system. Background consolidation runs during idle time, implementing the two-window consolidation model (Stickgold & Walker 2013) with reconsolidation support.
 
 ### The Problem
 
@@ -101,40 +101,40 @@ Background consolidation during idle time:
 
 | Phase | Action |
 |-------|--------|
-| Strengthening | Frequently co-accessed memories get stronger links |
-| Pruning | Low-value memories decay below retrieval threshold |
-| Abstraction | Patterns extracted into semantic memory |
-| Integration | New memories linked to existing knowledge structures |
-
-### Key Features
-
-| Feature | Description |
-|---------|-------------|
-| Idle detection | Consolidation runs between sessions |
-| Replay | Reactivate and strengthen important memory traces |
-| Competitive pruning | Similar memories compete; strongest survives |
-| Pattern extraction | "This codebase prefers X" from many instances |
+| Strengthening | Recently accessed memories get encoding boosts |
+| Pruning | Low-value memories, associations, and visuals decay and get pruned |
+| State transitions | `fresh → consolidating → consolidated` with time-based windows |
+| Reconsolidation | Similar new content updates existing traces instead of duplicating |
 
 ### Neuroscience Basis
 
 - **Stickgold & Walker (2013)** — Sleep-dependent memory consolidation
 - **McClelland et al. (1995)** — Complementary learning systems
 - **Frankland & Bontempi (2005)** — Systems consolidation theory
+- **Nader et al. (2000)** — Reconsolidation: retrieved memories become labile
 
-### Implementation Notes
+### What Shipped
 
-- Background process triggered by session end or explicit command
-- Replay: recompute activations for recent memories
-- Pruning threshold based on access count + recency + emotional weight
-- New `semantic_knowledge` table for abstracted patterns
+| Component | Details |
+|-----------|---------|
+| Two-window consolidation | Micro (5 min): strengthen recent, decay stale, decay associations. Full (1 hr): state transitions, prune associations/memories/visuals/contexts |
+| Reconsolidation | PE zone routing: low=reinforce, moderate=reconsolidate, high=new trace. Dual-sigmoid model with age/use modulated thresholds |
+| PRP encoding | High-importance stores activate 90-min protein synthesis window that boosts subsequent encoding |
+| Association lifecycle | Exponential decay, co-retrieval reinforcement, threshold-based pruning |
+| Instance noise | Per-memory noise scaled by encoding strength |
+| Visual pruning | Rust `visualShouldPrune` in full consolidation cycle |
+| Session management | Graceful shutdown, background session pruning, `touchSession` wiring |
+| 5-gate audit | 25 tsc errors fixed, 6 storage methods wired, 7 NAPI functions wired, 13 methods made private |
+| MCP tools | `visual_delete`, `memory_consolidation_status` |
+| Tests | 307 total (92 Rust + 215 TS), 0 failures, 0 tsc errors |
 
 ---
 
-## 0.7.0 — Goal-Directed Retrieval
+## 0.7.0 — Encoding Specificity & Context Matching
 
 **Status:** Planned
 
-Retrieval is currently probe-driven (what's similar to the query?). Goal-directed retrieval biases results toward task-relevant memories.
+Retrieval currently ignores encoding context. Encoding specificity (Tulving 1983) predicts that memory retrieval is best when the retrieval context matches the encoding context.
 
 ### The Problem
 
@@ -142,19 +142,18 @@ Retrieval is currently probe-driven (what's similar to the query?). Goal-directe
 User: "Find memories about the config system"
 Claude: [Returns all config-related memories equally]
 
-# But if Claude knows the goal is debugging...
-Claude: [Should prioritize config memories related to bugs/errors]
+# But if Claude encoded a memory while debugging auth...
+Claude: [Should boost that memory when debugging auth again]
 ```
 
 ### The Solution
 
-Pass current task/goal context to the retrieval pipeline:
+Match retrieval context against encoding context:
 
 ```typescript
 retrieve(probe, {
-  goal: "debugging authentication",
-  // Boosts: memories tagged with debugging, auth-related files,
-  // previous bug fixes, error patterns
+  context: { activity: "debugging", project: "auth-service" },
+  // Boosts memories encoded in similar contexts
 })
 ```
 
@@ -162,23 +161,23 @@ retrieve(probe, {
 
 | Feature | Description |
 |---------|-------------|
-| Goal context | Current task passed to retrieval |
-| Relevance boost | Memories aligned with goal get activation boost |
-| Goal inference | Detect goal from recent activity patterns |
-| Multi-goal support | Weighted combination of active goals |
+| Encoding context | Activity type, project, emotional state stored at encoding time |
+| Context matching | Retrieval context compared against encoding context |
+| Specificity boost | Matching contexts increase retrieval probability |
+| `context_mismatch` fix | Benchmark scenario currently at 0% — this is the target |
 
 ### Neuroscience Basis
 
-- **Miller & Cohen (2001)** — Prefrontal cortex and cognitive control
-- **Desimone & Duncan (1995)** — Biased competition model of attention
-- **Botvinick et al. (2001)** — Conflict monitoring and cognitive control
+- **Tulving (1983)** — Encoding specificity principle
+- **Godden & Baddeley (1975)** — Context-dependent memory
+- **Smith & Vela (2001)** — Environmental context and memory
 
 ### Implementation Notes
 
-- Goal as additional input to `RetrievalInput`
-- Goal-memory relevance computed via embedding similarity
-- Inference from location activity types (debugging → debugging memories)
-- Integrates with existing emotional weight system
+- `encoding_context` column already populated by 0.6.0's `storeMemory`
+- `EncodingSpecificityConfig` already defined in config.ts
+- Context matching added to retrieval pipeline activation computation
+- Target: `context_mismatch` benchmark scenario from 0% to 80%+
 
 ---
 

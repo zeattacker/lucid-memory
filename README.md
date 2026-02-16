@@ -13,13 +13,9 @@ curl -fsSL https://lucidmemory.dev/install | bash
 <br><br>
 </div>
 
-**New in 0.5.2:** **OpenCode Support** — Lucid Memory now works with [OpenCode](https://github.com/sst/opencode). Automatic context injection via plugin hooks, continuous memory encoding, and full install/uninstall support. Choose any combination of Claude Code, Codex, and OpenCode during installation.
-
-**New in 0.5.1:** **Native Embeddings** — Zero external services. BGE-base-en-v1.5 runs in-process via ONNX Runtime. Ollama is no longer required. Existing embeddings auto-migrate on startup.
+**New in 0.6.0:** <a href="#memory-consolidation">Memory Consolidation</a> — Lucid Memory is now self-maintaining. Background consolidation strengthens recent memories, decays stale ones, prunes weak associations, and manages visual memory lifecycle. New memories are checked against existing traces — similar content reinforces or updates rather than duplicating. 307 tests, 0 tsc errors.
 
 **New in 0.5.0:** <a href="#episodic-memory">Episodic Memory</a> — Claude remembers not just what happened, but how it unfolded — reconstructing the story of your debugging session, not just the fix. "What was I working on before the auth refactor?" now has an answer.
-
-**New in 0.4.0:** <a href="#location-intuitions">Procedural Memory</a> — Claude learns your workflow, develops instincts, and creates muscle memory for actions. No more searching or directing Claude to common file locations - it just knows.
 
 ---
 
@@ -347,6 +343,53 @@ Episodic Memory is modeled on three brain systems:
 
 </details>
 
+<h3 id="memory-consolidation">Memory Consolidation</h3>
+
+**New in 0.6.0:** Memories aren't static — they evolve over time.
+
+Before 0.6.0, every memory persisted forever with static encoding strength. Now, Lucid Memory runs background consolidation that mirrors how biological memory systems work during sleep.
+
+| Without Consolidation | With Consolidation |
+| --------------------- | ------------------ |
+| Memories accumulate forever | Weak memories decay and get pruned |
+| All memories have equal strength | Recent/important memories get stronger |
+| Duplicate content creates separate traces | Similar content reinforces or updates existing traces |
+| Associations never decay | Unused associations weaken and get pruned |
+
+**How it works:**
+
+- **Two-window consolidation** — Micro-consolidation (every 5 min) strengthens recently accessed memories and decays stale ones. Full consolidation (every 1 hour) advances state transitions and prunes weak data.
+- **Reconsolidation** — When you store something similar to an existing memory, the system routes it through prediction error zones: low PE reinforces the original, moderate PE updates it in place, high PE creates a new trace.
+- **Association lifecycle** — Associations between co-retrieved memories are reinforced. Unused associations decay exponentially and get pruned below threshold.
+- **PRP encoding** — High-importance memories activate a protein synthesis-dependent window that boosts encoding of subsequent stores for 90 minutes.
+
+<details>
+<summary><b>The neuroscience</b></summary>
+
+Memory Consolidation is modeled on four systems:
+
+**Two-Window Consolidation** (Stickgold & Walker, 2013)
+- Micro window: immediate synaptic strengthening of recently accessed traces
+- Full window: systems-level state transitions and pruning
+- Our implementation: 5-min micro + 1-hour full consolidation cycles
+
+**Reconsolidation** (Nader et al., 2000)
+- Retrieved memories become labile and can be updated
+- Prediction error determines the response: reinforce, update, or create new
+- Our implementation: dual-sigmoid PE zone routing with age/use modulated thresholds
+
+**Association Decay** (Ebbinghaus, 1885; Anderson & Schooler, 1991)
+- Unused associations weaken over time following exponential decay
+- Co-retrieval reinforces associations (Hebbian learning)
+- Our implementation: `computeAssociationDecay` + `reinforceAssociation` in Rust
+
+**Protein Synthesis-Dependent Consolidation** (Kandel, 2001)
+- Emotionally significant experiences trigger enhanced encoding
+- 90-minute window of boosted protein synthesis
+- Our implementation: PRP state with half-life decay, activated by high emotional weight
+
+</details>
+
 <h3 id="location-intuitions">Procedural Memory</h3>
 
 **New in 0.4.0:** Claude develops procedural memory—the "muscle memory" of coding.
@@ -585,6 +628,12 @@ When memory 0 activates, memory 1 receives proportional activation.
 - Moser, E. I., Kropff, E., & Moser, M. B. (2008). Place cells, grid cells, and the brain's spatial representation system. *Annual Review of Neuroscience*, 31, 69-89.
 - Squire, L. R. (1992). Memory and the hippocampus: A synthesis from findings with rats, monkeys, and humans. *Psychological Review*, 99(2), 195-231.
 - Hebb, D. O. (1949). *The Organization of Behavior*
+
+### Memory Consolidation
+- Stickgold, R., & Walker, M. P. (2013). Sleep-dependent memory triage. *Nature Neuroscience*, 16(2), 139-145.
+- Nader, K., Schafe, G. E., & Le Doux, J. E. (2000). Fear memories require protein synthesis in the amygdala for reconsolidation after retrieval. *Nature*, 406(6797), 722-726.
+- Kandel, E. R. (2001). The molecular biology of memory storage: A dialogue between genes and synapses. *Science*, 294(5544), 1030-1038.
+- Anderson, J. R., & Schooler, L. J. (1991). Reflections of the environment in memory. *Psychological Science*, 2(6), 396-408.
 
 ### Visual Memory
 - Paivio, A. (1986). *Mental Representations: A Dual Coding Approach* — Images and words are processed through separate but interconnected channels

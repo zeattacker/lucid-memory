@@ -18,6 +18,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
+import { ConsolidationConfig, ReconsolidationConfig } from "./config.ts"
+import { ConsolidationEngine } from "./consolidation.ts"
 import { detectProvider, loadNativeEmbeddingModel } from "./embeddings.ts"
 import { LucidRetrieval } from "./retrieval.ts"
 
@@ -197,6 +199,68 @@ function startBackgroundDecayProcessor(): void {
 			}
 		} catch (error) {
 			console.error("[lucid] Error applying familiarity decay:", error)
+		}
+	}, oneHourMs)
+}
+
+function startBackgroundConsolidationProcessor(): void {
+	if (!ConsolidationConfig.enabled) return
+
+	const engine = new ConsolidationEngine(retrieval.storage)
+
+	// Micro-consolidation: every 5 minutes
+	setInterval(() => {
+		try {
+			const stats = engine.runMicroConsolidation()
+			const total =
+				stats.strengthened +
+				stats.decayed +
+				stats.associationsDecayed +
+				stats.associationsPruned
+			if (total > 0) {
+				console.error(
+					`[lucid] Micro-consolidation: ${stats.strengthened} strengthened, ${stats.decayed} decayed, ${stats.associationsPruned} assocs pruned`
+				)
+			}
+		} catch (error) {
+			console.error("[lucid] Error in micro-consolidation:", error)
+		}
+	}, ConsolidationConfig.microIntervalMs)
+
+	// Full consolidation: every hour
+	setInterval(() => {
+		try {
+			const stats = engine.runFullConsolidation()
+			const total =
+				stats.freshToConsolidating +
+				stats.consolidatingToConsolidated +
+				stats.reconsolidatingToConsolidated +
+				stats.associationsPruned +
+				stats.memoriesPruned +
+				stats.contextsConsolidated +
+				stats.visualsPruned
+			if (total > 0) {
+				console.error(
+					`[lucid] Full consolidation: ${stats.freshToConsolidating} fresh→consolidating, ${stats.consolidatingToConsolidated} consolidating→consolidated, ${stats.associationsPruned} assocs pruned, ${stats.memoriesPruned} memories pruned, ${stats.visualsPruned} visuals pruned, ${stats.contextsConsolidated} contexts consolidated`
+				)
+			}
+		} catch (error) {
+			console.error("[lucid] Error in full consolidation:", error)
+		}
+	}, ConsolidationConfig.fullIntervalMs)
+}
+
+function startBackgroundSessionPruneProcessor(): void {
+	const oneHourMs = 60 * 60 * 1000
+
+	setInterval(() => {
+		try {
+			const pruned = retrieval.storage.pruneExpiredSessions()
+			if (pruned > 0) {
+				console.error(`[lucid] Pruned ${pruned} expired sessions`)
+			}
+		} catch (error) {
+			console.error("[lucid] Error pruning expired sessions:", error)
 		}
 	}, oneHourMs)
 }
@@ -828,6 +892,34 @@ server.tool(
 	}
 )
 
+/**
+ * visual_delete - Delete a visual memory
+ */
+server.tool(
+	"visual_delete",
+	"Delete a visual memory by ID. Use when a visual memory is no longer relevant or was stored in error.",
+	{
+		id: z.string().describe("The visual memory ID to delete"),
+	},
+	async ({ id }) => {
+		try {
+			const deleted = retrieval.storage.deleteVisualMemory(id)
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: deleted
+							? `Visual memory ${id} deleted.`
+							: `Visual memory ${id} not found.`,
+					},
+				],
+			}
+		} catch (error) {
+			return toolError("visual_delete", error)
+		}
+	}
+)
+
 // ============================================================================
 // Video Processing Tools
 // ============================================================================
@@ -1006,6 +1098,54 @@ server.tool(
 			}
 		} catch (error) {
 			return toolError("video_cleanup", error)
+		}
+	}
+)
+
+// ============================================================================
+// Consolidation Tools (0.6.0)
+// ============================================================================
+
+server.tool(
+	"memory_consolidation_status",
+	"Get memory consolidation diagnostics — shows consolidation state distribution and association stats.",
+	{},
+	async () => {
+		try {
+			const counts = retrieval.storage.getConsolidationCounts()
+			const associations = retrieval.storage.getAllAssociations()
+			const weakCount = associations.filter((a) => a.strength < 0.1).length
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: JSON.stringify({
+							consolidationStates: counts,
+							associations: {
+								total: associations.length,
+								weak: weakCount,
+								avgStrength:
+									associations.length > 0
+										? associations.reduce((sum, a) => sum + a.strength, 0) /
+											associations.length
+										: 0,
+							},
+							config: {
+								consolidationEnabled: ConsolidationConfig.enabled,
+								microIntervalMs: ConsolidationConfig.microIntervalMs,
+								fullIntervalMs: ConsolidationConfig.fullIntervalMs,
+								reconsolidationEnabled: ReconsolidationConfig.enabled,
+								reconsolidationZone: {
+									thetaLow: ReconsolidationConfig.thetaLow,
+									thetaHigh: ReconsolidationConfig.thetaHigh,
+								},
+							},
+						}),
+					},
+				],
+			}
+		} catch (error) {
+			return toolError("memory_consolidation_status", error)
 		}
 	}
 )
@@ -1894,6 +2034,8 @@ async function main(): Promise<void> {
 	startBackgroundEmbeddingProcessor()
 	startBackgroundVisualEmbeddingProcessor()
 	startBackgroundDecayProcessor()
+	startBackgroundConsolidationProcessor()
+	startBackgroundSessionPruneProcessor()
 
 	// Check for updates in background (non-blocking)
 	void checkForUpdates()
@@ -1902,10 +2044,35 @@ async function main(): Promise<void> {
 	const transport = new StdioServerTransport()
 	await server.connect(transport)
 
+	// Log native core version if available
+	try {
+		const native = await import("@lucid-memory/native")
+		console.error(`[lucid] Native core: v${native.version()}`)
+	} catch {
+		console.error("[lucid] Native core: not available (using TS fallback)")
+	}
+
 	console.error("[lucid] Server connected. Ready for Claude Code.")
 }
 
+let isShuttingDown = false
+function shutdown(code = 0): void {
+	if (isShuttingDown) return
+	isShuttingDown = true
+	try {
+		if (retrieval) {
+			retrieval.close()
+		}
+	} catch (error) {
+		console.error("[lucid] Error during shutdown:", error)
+	}
+	process.exit(code)
+}
+
+process.once("SIGINT", () => shutdown(0))
+process.once("SIGTERM", () => shutdown(0))
+
 main().catch((error) => {
 	console.error("[lucid] Fatal error:", error)
-	process.exit(1)
+	shutdown(1)
 })

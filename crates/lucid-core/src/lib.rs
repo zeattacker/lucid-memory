@@ -124,6 +124,8 @@ pub use activation::{
 	// Association Decay
 	compute_association_decay,
 	compute_base_level,
+	// Reconsolidation
+	compute_effective_thresholds,
 	// Instance Noise
 	compute_encoding_strength,
 	compute_instance_noise,
@@ -136,6 +138,8 @@ pub use activation::{
 	cosine_similarity,
 	get_decay_tau,
 	nonlinear_activation,
+	pe_zone,
+	reconsolidation_probability,
 	reinforce_association,
 	retrieval_probability,
 	should_prune_association,
@@ -144,7 +148,9 @@ pub use activation::{
 	AssociationDecayConfig,
 	AssociationState,
 	InstanceNoiseConfig,
+	ReconsolidationConfig,
 	WorkingMemoryConfig,
+	BETA_RECON, THETA_HIGH, THETA_LOW,
 };
 pub use retrieval::{retrieve, RetrievalCandidate, RetrievalConfig, RetrievalInput};
 pub use spreading::{

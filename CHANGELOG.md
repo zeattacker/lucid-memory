@@ -7,6 +7,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-15
+
+### Added
+
+#### Memory Consolidation & Reconsolidation
+
+Lucid Memory is now a self-maintaining memory system. Background consolidation runs during idle time — strengthening recently accessed memories, decaying stale ones, advancing consolidation state machines, pruning weak associations, and cleaning up visual memories. Before 0.6.0, memories accumulated forever with static encoding strength and no lifecycle management.
+
+**Key features:**
+
+- **Two-window consolidation** (Stickgold & Walker 2013) — Micro-consolidation (every 5 min) strengthens recent memories and decays stale ones. Full consolidation (every 1 hour) advances state transitions and prunes weak data.
+- **Consolidation state machine** — Memories progress through `fresh → consolidating → consolidated` with time-based transitions. Reconsolidation returns memories to a labile state when updated.
+- **Reconsolidation with PE zones** — New memories are checked against existing traces. Low prediction error reinforces the existing memory. Moderate PE triggers reconsolidation (update in place). High PE creates a new trace. Based on dual-sigmoid reconsolidation model.
+- **PRP encoding boost** — High-importance memories activate a Protein Synthesis-dependent consolidation window (90-min half-life) that boosts encoding strength of subsequent stores.
+- **Association lifecycle** — Associations decay over time via exponential decay, are reinforced on co-retrieval, and pruned when below threshold. Uses Rust `computeAssociationDecay`, `reinforceAssociation`, and `shouldPruneAssociation`.
+- **Visual memory pruning** — Stale visual memories are pruned during full consolidation using Rust `visualShouldPrune` based on significance and recency.
+- **Instance noise** — Per-memory retrieval noise scaled by encoding strength. Stronger memories have lower noise for more consistent retrieval.
+
+**New Rust functions in `lucid-core`:**
+
+| Function | Purpose |
+|----------|---------|
+| `reconsolidation_probability()` | Dual-sigmoid bell curve for PE zone routing |
+| `compute_effective_thresholds()` | Age/use modulated reconsolidation boundaries |
+| `pe_zone()` | Returns `reinforce`, `reconsolidate`, or `new_trace` |
+
+**New MCP tools:**
+
+| Tool | Purpose |
+|------|---------|
+| `visual_delete` | Delete a visual memory by ID |
+| `memory_consolidation_status` | Diagnostics: consolidation state counts, association stats |
+
+**Background processors:**
+
+| Processor | Interval | Action |
+|-----------|----------|--------|
+| Micro-consolidation | 5 min | Strengthen recent, decay stale, decay associations |
+| Full consolidation | 1 hour | State transitions, prune associations/memories/visuals, consolidate contexts |
+| Session pruning | 5 min | Clean up expired sessions (>30 min inactive) |
+
+#### 5-Gate Audit
+
+Comprehensive audit ensuring every feature advertised in the README is actually implemented, wired, tested, and produces no orphaned outputs.
+
+**Gate 1 — TSC type safety:** Fixed 25 pre-existing TypeScript compiler errors across 4 files (retrieval.ts, episodic-memory.test.ts, association-index.test.ts, storage.ts). Zero tsc errors remaining.
+
+**Gate 5 — No orphaned outputs:**
+
+*Storage methods wired:*
+- `pruneOldMemories()` → consolidation engine full cycle
+- `consolidateOldContexts()` → consolidation engine full cycle
+- `deleteVisualMemory()` → `visual_delete` MCP tool + consolidation visual pruning
+- `endSession()` → `retrieval.close()` shutdown flow
+- `touchSession()` → `getOrCreateSession()` in retrieval.ts
+- `pruneExpiredSessions()` → background session pruning processor
+
+*NAPI functions wired:*
+- `computeSessionDecayRateBatch` / `computeWorkingMemoryBoostBatch` → retrieval.ts batch optimization
+- `nonlinearActivation` → retrieval.ts TS fallback (2 call sites)
+- `createEpisodeLinks` → retrieval.ts episode creation
+- `shouldPruneAssociation` → consolidation engine association decay
+- `visualShouldPrune` → consolidation engine visual pruning
+- `version()` → server.ts startup log
+
+*13 internal methods made private* to reduce public API surface.
+
+### Changed
+
+- All consolidation config flags enabled by default (`ConsolidationConfig`, `AssociationDecayConfig`, `InstanceNoiseConfig`)
+- `ReconsolidationConfig` and `PrpConfig` added with sensible defaults
+- Retrieval pipeline now includes instance noise, PRP encoding, and association reinforcement
+- Background consolidation processor runs alongside existing decay and embedding processors
+- Native version logged at MCP server startup
+- Graceful shutdown now ends all active sessions via `retrieval.close()`
+
+### Fixed
+
+- 25 pre-existing TypeScript compiler errors (narrowing, non-null assertions, type annotations)
+- `endSession()` called without argument during shutdown (moved to `retrieval.close()`)
+- Tests referencing private `getAccessHistory` rewritten to use `accessCount`
+
+### Benchmark Results
+
+| Metric | 0.5.0 | 0.6.0 | Change |
+|--------|-------|-------|--------|
+| Cognitive Avg | 87.3% | 87.3% | -- |
+| Delta vs RAG | +16% | +16% | -- |
+| NDCG (quality) | 1.000 | 1.000 | -- |
+| Token efficiency | 5x | 5x | -- |
+| Episode retrieval | 80% | 80% | -- |
+| Tests passing | 163 | 307 | +144 |
+
+**307 tests (92 Rust + 215 TS), 0 failures, 0 tsc errors.**
+
 ## [0.5.2] - 2026-02-10
 
 ### Added

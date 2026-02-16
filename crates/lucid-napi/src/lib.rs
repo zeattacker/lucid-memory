@@ -409,6 +409,73 @@ pub fn should_prune_association(strength: f64, config: Option<JsAssociationDecay
 }
 
 // ============================================================================
+// Reconsolidation
+// ============================================================================
+
+/// Configuration for reconsolidation calculations.
+#[napi(object)]
+#[derive(Clone)]
+pub struct JsReconsolidationConfig {
+	/// Lower PE threshold (default: 0.10)
+	pub theta_low: Option<f64>,
+	/// Upper PE threshold (default: 0.55)
+	pub theta_high: Option<f64>,
+	/// Sigmoid steepness (default: 10.0)
+	pub beta: Option<f64>,
+	/// How much encoding strength shifts `θ_high` down (default: 0.15)
+	pub strength_shift: Option<f64>,
+	/// How much memory age shifts `θ_low` up (default: 0.05)
+	pub age_shift: Option<f64>,
+	/// Baseline access count for normalization (default: 5.0)
+	pub baseline_count: Option<f64>,
+	/// Baseline days since access for normalization (default: 1.0)
+	pub baseline_days: Option<f64>,
+}
+
+/// Compute reconsolidation probability using dual-sigmoid bell curve.
+///
+/// Returns probability of reconsolidation (peaks in the middle PE zone).
+#[napi]
+pub fn reconsolidation_probability(
+	pe_abs: f64,
+	theta_low: f64,
+	theta_high: f64,
+	beta: f64,
+) -> f64 {
+	lucid_core::reconsolidation_probability(pe_abs, theta_low, theta_high, beta)
+}
+
+/// Compute effective thresholds with boundary modulators.
+///
+/// Returns `[effective_theta_low, effective_theta_high]`.
+#[napi]
+pub fn compute_effective_thresholds(
+	theta_low: f64,
+	theta_high: f64,
+	access_count: u32,
+	days_since_last_access: f64,
+	config: Option<JsReconsolidationConfig>,
+) -> Vec<f64> {
+	let core_config = js_recon_config_to_core(config);
+	let (low, high) = lucid_core::compute_effective_thresholds(
+		theta_low,
+		theta_high,
+		access_count,
+		days_since_last_access,
+		&core_config,
+	);
+	vec![low, high]
+}
+
+/// Determine prediction error zone.
+///
+/// Returns `"reinforce"`, `"reconsolidate"`, or `"new_trace"`.
+#[napi]
+pub fn pe_zone(pe_abs: f64, theta_low_eff: f64, theta_high_eff: f64) -> String {
+	lucid_core::pe_zone(pe_abs, theta_low_eff, theta_high_eff).to_string()
+}
+
+// ============================================================================
 // Temporal Spreading (Episodic Memory)
 // ============================================================================
 
@@ -1467,6 +1534,26 @@ fn js_assoc_decay_config_to_core(
 					.unwrap_or(default.tau_reconsolidating_days),
 				reinforcement_boost: c.reinforcement_boost.unwrap_or(default.reinforcement_boost),
 				prune_threshold: c.prune_threshold.unwrap_or(default.prune_threshold),
+			}
+		},
+	)
+}
+
+fn js_recon_config_to_core(
+	js: Option<JsReconsolidationConfig>,
+) -> lucid_core::activation::ReconsolidationConfig {
+	js.map_or_else(
+		lucid_core::activation::ReconsolidationConfig::default,
+		|c| {
+			let default = lucid_core::activation::ReconsolidationConfig::default();
+			lucid_core::activation::ReconsolidationConfig {
+				theta_low: c.theta_low.unwrap_or(default.theta_low),
+				theta_high: c.theta_high.unwrap_or(default.theta_high),
+				beta: c.beta.unwrap_or(default.beta),
+				strength_shift: c.strength_shift.unwrap_or(default.strength_shift),
+				age_shift: c.age_shift.unwrap_or(default.age_shift),
+				baseline_count: c.baseline_count.unwrap_or(default.baseline_count),
+				baseline_days: c.baseline_days.unwrap_or(default.baseline_days),
 			}
 		},
 	)

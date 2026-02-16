@@ -72,19 +72,16 @@ describe("LucidStorage", () => {
 		it("tracks access history", () => {
 			const memory = storage.storeMemory({ content: "Track me" })
 
-			// Initial access was recorded
-			let history = storage.getAccessHistory(memory.id)
-			expect(history.length).toBe(1)
+			// Initial store records first access
+			let retrieved = storage.getMemory(memory.id)
+			expect(retrieved?.accessCount).toBe(1)
 
 			// Record more accesses
 			storage.recordAccess(memory.id)
 			storage.recordAccess(memory.id)
 
-			history = storage.getAccessHistory(memory.id)
-			expect(history.length).toBe(3)
-
-			// Check memory access count
-			const retrieved = storage.getMemory(memory.id)
+			// Check memory access count reflects all accesses
+			retrieved = storage.getMemory(memory.id)
 			expect(retrieved?.accessCount).toBe(3)
 		})
 

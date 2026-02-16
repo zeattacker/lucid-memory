@@ -244,11 +244,13 @@ describe("Temporal Retrieval Improvements", () => {
 				type: "learning",
 			})
 
-			const historyBefore = retrieval.storage.getAccessHistory(memory.id)
+			const countBefore =
+				retrieval.storage.getMemory(memory.id)?.accessCount ?? 0
 			r.updateWorkingMemory(memory.id, Date.now())
-			const historyAfter = retrieval.storage.getAccessHistory(memory.id)
+			const countAfter =
+				retrieval.storage.getMemory(memory.id)?.accessCount ?? 0
 
-			expect(historyAfter.length).toBe(historyBefore.length)
+			expect(countAfter).toBe(countBefore)
 		})
 	})
 
