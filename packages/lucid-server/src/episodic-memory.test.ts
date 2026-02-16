@@ -121,15 +121,15 @@ describe("Episodic Memory - Boundary Detection", () => {
 		// Create temporal links (mimics what store() does)
 		storage.createTemporalLink({
 			episodeId: ep.id,
-			sourceEventId: e1!.id,
-			targetEventId: e2!.id,
+			sourceEventId: e1?.id ?? "",
+			targetEventId: e2?.id ?? "",
 			strength: EpisodicMemoryConfig.forwardLinkStrength * 1.0,
 			direction: "forward",
 		})
 		storage.createTemporalLink({
 			episodeId: ep.id,
-			sourceEventId: e2!.id,
-			targetEventId: e1!.id,
+			sourceEventId: e2?.id ?? "",
+			targetEventId: e1?.id ?? "",
 			strength: EpisodicMemoryConfig.backwardLinkStrength * 1.0,
 			direction: "backward",
 		})
@@ -186,12 +186,12 @@ describe("Episodic Memory - Store Lifecycle", () => {
 		expect(episodes.length).toBeGreaterThanOrEqual(1)
 
 		// Check that events were added
-		const latestEpisode = episodes[0]!
-		const events = retrieval.storage.getEpisodeEvents(latestEpisode.id)
+		const latestEpisodeId = episodes[0]?.id ?? ""
+		const events = retrieval.storage.getEpisodeEvents(latestEpisodeId)
 		expect(events.length).toBeGreaterThanOrEqual(2)
 
 		// Check that temporal links were created
-		const links = retrieval.storage.getEpisodeTemporalLinks(latestEpisode.id)
+		const links = retrieval.storage.getEpisodeTemporalLinks(latestEpisodeId)
 		expect(links.length).toBeGreaterThan(0)
 	})
 
@@ -240,8 +240,8 @@ describe("Episodic Memory - Temporal Spreading", () => {
 			)
 			storage.createTemporalLink({
 				episodeId: ep.id,
-				sourceEventId: events[0]!.id,
-				targetEventId: events[i]!.id,
+				sourceEventId: events[0]?.id ?? "",
+				targetEventId: events[i]?.id ?? "",
 				strength: EpisodicMemoryConfig.forwardLinkStrength * decayFactor,
 				direction: "forward",
 			})
@@ -251,8 +251,8 @@ describe("Episodic Memory - Temporal Spreading", () => {
 		// Closer events should have stronger links
 		const sortedByStrength = links.sort((a, b) => b.strength - a.strength)
 		for (let i = 0; i < sortedByStrength.length - 1; i++) {
-			expect(sortedByStrength[i]!.strength).toBeGreaterThanOrEqual(
-				sortedByStrength[i + 1]!.strength
+			expect(sortedByStrength[i]?.strength).toBeGreaterThanOrEqual(
+				sortedByStrength[i + 1]?.strength ?? 0
 			)
 		}
 	})
@@ -354,7 +354,7 @@ describe("Episodic Memory - Temporal Neighbors", () => {
 		// Both memories should be in the same episode
 		const episodes = retrieval.storage.getRecentEpisodes("cache-test", 10)
 		expect(episodes.length).toBe(1)
-		const events = retrieval.storage.getEpisodeEvents(episodes[0]!.id)
+		const events = retrieval.storage.getEpisodeEvents(episodes[0]?.id ?? "")
 		expect(events.length).toBe(2)
 	})
 
@@ -368,7 +368,9 @@ describe("Episodic Memory - Temporal Neighbors", () => {
 		const episodes = retrieval.storage.getRecentEpisodes("asym-test", 1)
 		expect(episodes.length).toBe(1)
 
-		const links = retrieval.storage.getEpisodeTemporalLinks(episodes[0]!.id)
+		const links = retrieval.storage.getEpisodeTemporalLinks(
+			episodes[0]?.id ?? ""
+		)
 		expect(links.length).toBe(2) // one forward, one backward
 
 		const forward = links.find((l) => l.direction === "forward")

@@ -804,9 +804,11 @@ export class LucidRetrieval {
 			}
 		} else {
 			for (let i = 0; i < lastAccessTimes.length; i++) {
-				decayRates.push(this.getSessionDecayRate(lastAccessTimes[i]!, now))
+				decayRates.push(
+					this.getSessionDecayRate(lastAccessTimes[i] ?? now, now)
+				)
 				workingMemoryBoosts.push(
-					this.getWorkingMemoryBoost(memoriesWithEmbeddings[i]!.id, now)
+					this.getWorkingMemoryBoost(memoriesWithEmbeddings[i]?.id ?? "", now)
 				)
 			}
 		}
@@ -926,8 +928,9 @@ export class LucidRetrieval {
 			try {
 				const topIds = finalCandidates.slice(0, 5).map((c) => c.memory.id)
 				for (let i = 0; i < topIds.length; i++) {
+					const sourceId = topIds[i] ?? ""
 					for (let j = i + 1; j < topIds.length; j++) {
-						const assocs = this.storage.getAssociations(topIds[i]!)
+						const assocs = this.storage.getAssociations(sourceId)
 						const existing = assocs.find(
 							(a) =>
 								(a.sourceId === topIds[i] && a.targetId === topIds[j]) ||
@@ -1199,7 +1202,7 @@ export class LucidRetrieval {
 									0.5
 								)
 							: 1.0 -
-								this.storage["cosineSimilarity"](
+								this.storage.cosineSimilarity(
 									similar.embedding,
 									embedding.vector
 								)
@@ -1220,8 +1223,8 @@ export class LucidRetrieval {
 								baselineDays: ReconsolidationConfig.baselineDays,
 							}
 						)
-						thetaLow = thresholds[0]!
-						thetaHigh = thresholds[1]!
+						thetaLow = thresholds[0] ?? thetaLow
+						thetaHigh = thresholds[1] ?? thetaHigh
 					} else {
 						// TS fallback: age shifts θ_low up, use shifts θ_high down
 						const ageFactor = Math.min(

@@ -93,7 +93,6 @@ fn main() {
 			"  Retrieval Probability: {:.1}%",
 			candidate.probability * 100.0
 		);
-		println!("  Estimated Latency: {:.0}ms", candidate.latency_ms);
 		println!();
 	}
 

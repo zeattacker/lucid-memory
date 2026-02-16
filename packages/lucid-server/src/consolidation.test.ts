@@ -18,6 +18,11 @@ import { LucidStorage } from "./storage.ts"
 
 const testDbPath = join(tmpdir(), `lucid-consolidation-test-${Date.now()}.db`)
 
+type RawDb = { prepare(sql: string): { run(...args: unknown[]): void } }
+function testSql(s: LucidStorage, sql: string, ...params: unknown[]) {
+	;(s as unknown as { db: RawDb }).db.prepare(sql).run(...params)
+}
+
 describe("ConsolidationEngine", () => {
 	let storage: LucidStorage
 	let engine: ConsolidationEngine
@@ -53,7 +58,7 @@ describe("ConsolidationEngine", () => {
 			expect(stats.strengthened).toBeGreaterThan(0)
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.encodingStrength).toBeGreaterThan(0.5)
+			expect(updated?.encodingStrength).toBeGreaterThan(0.5)
 		})
 
 		it("caps encoding strength at 1.0", () => {
@@ -66,7 +71,7 @@ describe("ConsolidationEngine", () => {
 			engine.runMicroConsolidation()
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.encodingStrength).toBeLessThanOrEqual(1.0)
+			expect(updated?.encodingStrength).toBeLessThanOrEqual(1.0)
 		})
 	})
 
@@ -86,15 +91,18 @@ describe("ConsolidationEngine", () => {
 				Date.now() -
 				ConsolidationConfig.staleThresholdDays * 24 * 60 * 60 * 1000 -
 				1000
-			storage["db"]
-				.prepare("UPDATE memories SET last_accessed = ? WHERE id = ?")
-				.run(staleDate, memory.id)
+			testSql(
+				storage,
+				"UPDATE memories SET last_accessed = ? WHERE id = ?",
+				staleDate,
+				memory.id
+			)
 
 			const stats = engine.runMicroConsolidation()
 			expect(stats.decayed).toBeGreaterThan(0)
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.encodingStrength).toBeLessThan(0.8)
+			expect(updated?.encodingStrength).toBeLessThan(0.8)
 		})
 
 		it("respects encoding strength floor", () => {
@@ -108,14 +116,17 @@ describe("ConsolidationEngine", () => {
 				Date.now() -
 				ConsolidationConfig.staleThresholdDays * 24 * 60 * 60 * 1000 -
 				1000
-			storage["db"]
-				.prepare("UPDATE memories SET last_accessed = ? WHERE id = ?")
-				.run(staleDate, memory.id)
+			testSql(
+				storage,
+				"UPDATE memories SET last_accessed = ? WHERE id = ?",
+				staleDate,
+				memory.id
+			)
 
 			engine.runMicroConsolidation()
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.encodingStrength).toBeGreaterThanOrEqual(
+			expect(updated?.encodingStrength).toBeGreaterThanOrEqual(
 				ConsolidationConfig.encodingStrengthFloor
 			)
 		})
@@ -132,14 +143,17 @@ describe("ConsolidationEngine", () => {
 
 			// Backdate to > 1 hour
 			const oldTime = Date.now() - 2 * 60 * 60 * 1000
-			storage["db"]
-				.prepare("UPDATE memories SET created_at = ? WHERE id = ?")
-				.run(oldTime, memory.id)
+			testSql(
+				storage,
+				"UPDATE memories SET created_at = ? WHERE id = ?",
+				oldTime,
+				memory.id
+			)
 
 			engine.runFullConsolidation()
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.consolidationState).toBe("consolidating")
+			expect(updated?.consolidationState).toBe("consolidating")
 		})
 
 		it("transitions consolidating → consolidated after 24 hours", () => {
@@ -148,15 +162,18 @@ describe("ConsolidationEngine", () => {
 			// Set to consolidating and backdate
 			storage.updateConsolidationState(memory.id, "consolidating")
 			const oldTime = Date.now() - 25 * 60 * 60 * 1000
-			storage["db"]
-				.prepare("UPDATE memories SET created_at = ? WHERE id = ?")
-				.run(oldTime, memory.id)
+			testSql(
+				storage,
+				"UPDATE memories SET created_at = ? WHERE id = ?",
+				oldTime,
+				memory.id
+			)
 
 			const stats = engine.runFullConsolidation()
 			expect(stats.consolidatingToConsolidated).toBeGreaterThan(0)
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.consolidationState).toBe("consolidated")
+			expect(updated?.consolidationState).toBe("consolidated")
 		})
 
 		it("transitions reconsolidating → consolidated", () => {
@@ -165,15 +182,18 @@ describe("ConsolidationEngine", () => {
 
 			// Backdate last_consolidated to > 24 hours
 			const oldTime = Date.now() - 25 * 60 * 60 * 1000
-			storage["db"]
-				.prepare("UPDATE memories SET last_consolidated = ? WHERE id = ?")
-				.run(oldTime, memory.id)
+			testSql(
+				storage,
+				"UPDATE memories SET last_consolidated = ? WHERE id = ?",
+				oldTime,
+				memory.id
+			)
 
 			const stats = engine.runFullConsolidation()
 			expect(stats.reconsolidatingToConsolidated).toBeGreaterThan(0)
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.consolidationState).toBe("consolidated")
+			expect(updated?.consolidationState).toBe("consolidated")
 		})
 	})
 
@@ -195,8 +215,8 @@ describe("ConsolidationEngine", () => {
 			storage.updateConsolidationState(memory.id, "reconsolidating")
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.consolidationState).toBe("reconsolidating")
-			expect(updated!.lastConsolidated).not.toBeNull()
+			expect(updated?.consolidationState).toBe("reconsolidating")
+			expect(updated?.lastConsolidated).not.toBeNull()
 		})
 
 		it("findMostSimilarMemory returns null when no embeddings", () => {
@@ -211,8 +231,8 @@ describe("ConsolidationEngine", () => {
 
 			const result = storage.findMostSimilarMemory([0.9, 0.1, 0])
 			expect(result).not.toBeNull()
-			expect(result!.memoryId).toBe(memory.id)
-			expect(result!.similarity).toBeGreaterThan(0.4)
+			expect(result?.memoryId).toBe(memory.id)
+			expect(result?.similarity).toBeGreaterThan(0.4)
 		})
 
 		it("findMostSimilarMemory respects threshold", () => {
@@ -258,9 +278,9 @@ describe("ConsolidationEngine", () => {
 				(a) => a.sourceId === m1.id && a.targetId === m2.id
 			)
 			expect(assoc).toBeDefined()
-			expect(assoc!.strength).toBe(0.6)
+			expect(assoc?.strength).toBe(0.6)
 			// co_access_count should be incremented (was 1 from associate, +1 from reinforce)
-			expect(assoc!.coAccessCount).toBeGreaterThanOrEqual(2)
+			expect(assoc?.coAccessCount).toBeGreaterThanOrEqual(2)
 		})
 
 		it("micro-consolidation decays associations", () => {
@@ -270,11 +290,13 @@ describe("ConsolidationEngine", () => {
 
 			// Backdate last_reinforced to 3 days ago
 			const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000
-			storage["db"]
-				.prepare(
-					"UPDATE associations SET last_reinforced = ? WHERE source_id = ? AND target_id = ?"
-				)
-				.run(threeDaysAgo, m1.id, m2.id)
+			testSql(
+				storage,
+				"UPDATE associations SET last_reinforced = ? WHERE source_id = ? AND target_id = ?",
+				threeDaysAgo,
+				m1.id,
+				m2.id
+			)
 
 			const stats = engine.runMicroConsolidation()
 			// Should have either decayed or pruned
@@ -362,7 +384,7 @@ describe("ConsolidationEngine", () => {
 
 			expect(fresh).toHaveLength(1)
 			expect(consolidated).toHaveLength(1)
-			expect(consolidated[0]!.id).toBe(m2.id)
+			expect(consolidated[0]?.id).toBe(m2.id)
 		})
 
 		it("updateEncodingStrength persists", () => {
@@ -373,7 +395,7 @@ describe("ConsolidationEngine", () => {
 			storage.updateEncodingStrength(memory.id, 0.9)
 
 			const updated = storage.getMemory(memory.id)
-			expect(updated!.encodingStrength).toBe(0.9)
+			expect(updated?.encodingStrength).toBe(0.9)
 		})
 
 		it("getRecentlyAccessedMemories returns recent", () => {

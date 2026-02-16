@@ -1197,8 +1197,7 @@ server.tool(
 								recent: recentEpisodes.map((ep) => ({
 									id: ep.id,
 									boundaryType: ep.boundaryType,
-									eventCount:
-										retrieval.storage.getEpisodeEvents(ep.id).length,
+									eventCount: retrieval.storage.getEpisodeEvents(ep.id).length,
 									startedAt: new Date(ep.startedAt).toISOString(),
 									endedAt: ep.endedAt
 										? new Date(ep.endedAt).toISOString()

@@ -13,19 +13,16 @@ use napi_derive::napi;
 use lucid_core::{
 	location::{
 		compute_association_strength as core_association_strength,
-		compute_batch_decay as core_batch_decay, compute_familiarity as core_compute_familiarity,
+		compute_familiarity as core_compute_familiarity,
 		get_associated_locations as core_get_associated,
 		infer_activity_type as core_infer_activity, is_well_known as core_is_well_known,
-		ActivityInference, ActivityType, LocationAssociation, LocationConfig, LocationIntuition,
+		ActivityInference, ActivityType, LocationAssociation, LocationConfig,
 	},
 	retrieval::{retrieve as core_retrieve, RetrievalConfig as CoreConfig, RetrievalInput},
 	spreading::Association as CoreAssociation,
 	visual::{
-		compute_pruning_candidates as core_pruning_candidates,
-		compute_tag_strength as core_tag_strength, retrieve_visual as core_retrieve_visual,
-		should_prune as core_should_prune, should_tag as core_should_tag, ConsolidationState,
-		EmotionalContext, PruningReason, VisualConfig, VisualMemory, VisualRetrievalConfig,
-		VisualRetrievalInput, VisualSource,
+		retrieve_visual as core_retrieve_visual, should_prune as core_should_prune, VisualConfig,
+		VisualRetrievalConfig, VisualRetrievalInput,
 	},
 };
 
@@ -78,8 +75,6 @@ pub struct JsRetrievalCandidate {
 	pub total_activation: f64,
 	/// Retrieval probability (0-1)
 	pub probability: f64,
-	/// Estimated retrieval latency (ms)
-	pub latency_ms: f64,
 }
 
 /// Full retrieval pipeline using ACT-R spreading activation and MINERVA 2.
@@ -170,7 +165,6 @@ pub fn retrieve(
 			emotional_weight: c.emotional_weight,
 			total_activation: c.total_activation,
 			probability: c.probability,
-			latency_ms: c.latency_ms,
 		})
 		.collect()
 }
@@ -846,20 +840,6 @@ pub fn location_infer_activity(
 	activity_inference_to_js(result)
 }
 
-/// Compute decayed familiarity for multiple locations.
-///
-/// Returns new familiarity values in the same order as input.
-#[napi]
-pub fn location_batch_decay(
-	locations: Vec<JsLocationIntuition>,
-	current_time_ms: f64,
-	config: Option<JsLocationConfig>,
-) -> Vec<f64> {
-	let cfg = js_config_to_core(config);
-	let locs: Vec<LocationIntuition> = locations.into_iter().map(js_location_to_core).collect();
-	core_batch_decay(&locs, current_time_ms, &cfg)
-}
-
 /// Compute association strength with multiplier based on context.
 #[napi]
 pub fn location_association_strength(
@@ -1027,8 +1007,6 @@ pub struct JsVisualRetrievalCandidate {
 	pub total_activation: f64,
 	/// Retrieval probability
 	pub probability: f64,
-	/// Latency estimate (ms)
-	pub latency_ms: f64,
 }
 
 /// Consolidation state.
@@ -1105,27 +1083,8 @@ pub fn visual_retrieve(
 			significance_boost: c.significance_boost,
 			total_activation: c.total_activation,
 			probability: c.probability,
-			latency_ms: c.latency_ms,
 		})
 		.collect()
-}
-
-/// Compute tag strength based on various factors.
-#[napi]
-pub fn visual_compute_tag_strength(
-	base_confidence: f64,
-	access_count: u32,
-	significance: f64,
-	config: Option<JsVisualConfig>,
-) -> f64 {
-	let cfg = js_visual_config_to_core(config);
-	core_tag_strength(base_confidence, access_count, significance, &cfg)
-}
-
-/// Check if a tag should be applied.
-#[napi]
-pub fn visual_should_tag(strength: f64, threshold: f64) -> bool {
-	core_should_tag(strength, threshold)
 }
 
 /// Check if a visual memory should be pruned.
@@ -1145,31 +1104,6 @@ pub fn visual_should_prune(
 		is_keyframe,
 		&cfg,
 	)
-}
-
-/// Compute pruning candidates from visual memories.
-#[napi]
-pub fn visual_compute_pruning_candidates(
-	memories: Vec<JsVisualMemory>,
-	current_time_ms: f64,
-	config: Option<JsVisualConfig>,
-) -> Vec<JsPruningCandidate> {
-	let cfg = js_visual_config_to_core(config);
-	let core_memories: Vec<VisualMemory> =
-		memories.into_iter().map(js_visual_memory_to_core).collect();
-
-	let candidates = core_pruning_candidates(&core_memories, current_time_ms, &cfg);
-
-	candidates
-		.into_iter()
-		.map(|c| JsPruningCandidate {
-			index: c.index as u32,
-			significance: c.significance,
-			days_since_access: c.days_since_access,
-			reason: pruning_reason_to_string(c.reason),
-			score: c.score,
-		})
-		.collect()
 }
 
 // ============================================================================
@@ -1379,46 +1313,6 @@ fn js_visual_retrieval_config_to_core(
 	})
 }
 
-fn parse_visual_source(s: &str) -> VisualSource {
-	match s.to_lowercase().as_str() {
-		"discord" => VisualSource::Discord,
-		"sms" => VisualSource::Sms,
-		"direct" => VisualSource::Direct,
-		"videoframe" => VisualSource::VideoFrame,
-		_ => VisualSource::Other,
-	}
-}
-
-fn js_visual_memory_to_core(js: JsVisualMemory) -> VisualMemory {
-	VisualMemory {
-		id: js.id,
-		description: js.description,
-		detailed_description: js.detailed_description,
-		embedding: vec![], // Embeddings are passed separately
-		captured_at_ms: js.captured_at_ms,
-		last_accessed_ms: js.last_accessed_ms,
-		access_count: js.access_count,
-		emotional_context: EmotionalContext::new(js.emotional_valence, js.emotional_arousal),
-		significance: js.significance,
-		source: parse_visual_source(&js.source),
-		shared_by: js.shared_by,
-		video_id: js.video_id,
-		frame_number: js.frame_number,
-		objects: js.objects,
-		tags: js.tags,
-		is_pinned: js.is_pinned,
-	}
-}
-
-fn pruning_reason_to_string(reason: PruningReason) -> String {
-	match reason {
-		PruningReason::LowSignificance => "lowsignificance".to_string(),
-		PruningReason::Stale => "stale".to_string(),
-		PruningReason::Duplicate => "duplicate".to_string(),
-		PruningReason::LowQuality => "lowquality".to_string(),
-	}
-}
-
 fn js_config_to_core(js: Option<JsLocationConfig>) -> LocationConfig {
 	js.map_or_else(LocationConfig::default, |js| {
 		let default = LocationConfig::default();
@@ -1451,17 +1345,6 @@ fn js_config_to_core(js: Option<JsLocationConfig>) -> LocationConfig {
 				.unwrap_or(default.backward_strength_factor),
 		}
 	})
-}
-
-const fn js_location_to_core(js: JsLocationIntuition) -> LocationIntuition {
-	LocationIntuition {
-		id: js.id,
-		familiarity: js.familiarity,
-		access_count: js.access_count,
-		searches_saved: js.searches_saved,
-		last_accessed_ms: js.last_accessed_ms,
-		is_pinned: js.is_pinned,
-	}
 }
 
 const fn js_assoc_to_core(js: JsLocationAssociation) -> LocationAssociation {
@@ -1693,36 +1576,6 @@ mod tests {
 		);
 		assert_eq!(result.activity_type, "debugging");
 		assert_eq!(result.source, "explicit");
-	}
-
-	#[test]
-	fn test_location_batch_decay() {
-		let current_time = 1000.0 * 60.0 * 60.0 * 24.0 * 100.0; // Day 100
-		let old_time = current_time - (60.0 * 24.0 * 60.0 * 60.0 * 1000.0); // 60 days ago
-
-		let locations = vec![
-			JsLocationIntuition {
-				id: 0,
-				familiarity: 0.8,
-				access_count: 20,
-				searches_saved: 5,
-				last_accessed_ms: old_time,
-				is_pinned: false,
-			},
-			JsLocationIntuition {
-				id: 1,
-				familiarity: 0.5,
-				access_count: 10,
-				searches_saved: 2,
-				last_accessed_ms: old_time,
-				is_pinned: true, // Pinned - won't decay
-			},
-		];
-
-		let decayed = location_batch_decay(locations, current_time, None);
-
-		assert!(decayed[0] < 0.8); // Decayed
-		assert_eq!(decayed[1], 0.5); // Pinned - unchanged
 	}
 
 	#[test]

@@ -1241,15 +1241,17 @@ export class LucidStorage {
 		return bestMatch
 	}
 
-	private cosineSimilarity(a: number[], b: number[]): number {
+	cosineSimilarity(a: number[], b: number[]): number {
 		if (a.length !== b.length) return 0
 		let dot = 0
 		let normA = 0
 		let normB = 0
 		for (let i = 0; i < a.length; i++) {
-			dot += a[i]! * b[i]!
-			normA += a[i]! * a[i]!
-			normB += b[i]! * b[i]!
+			const ai = a[i] ?? 0
+			const bi = b[i] ?? 0
+			dot += ai * bi
+			normA += ai * ai
+			normB += bi * bi
 		}
 		const mag = Math.sqrt(normA) * Math.sqrt(normB)
 		return mag === 0 ? 0 : dot / mag
@@ -1878,7 +1880,7 @@ export class LucidStorage {
 				let oldestTime = Infinity
 				for (const [key, locs] of this.taskContextLocations) {
 					const lastAccess =
-						locs.length > 0 ? locs[locs.length - 1]!.lastAccessedAt : 0
+						locs.length > 0 ? (locs[locs.length - 1]?.lastAccessedAt ?? 0) : 0
 					if (lastAccess < oldestTime) {
 						oldestTime = lastAccess
 						oldestKey = key

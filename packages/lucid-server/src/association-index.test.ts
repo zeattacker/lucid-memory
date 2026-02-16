@@ -94,10 +94,10 @@ describe("buildAssociationIndex", () => {
 			]
 			const result = buildAssociationIndex(associations)
 
-			const aAssocs = result.get("A")!
-			expect(aAssocs[0]!.targetId).toBe("B")
-			expect(aAssocs[1]!.targetId).toBe("C")
-			expect(aAssocs[2]!.targetId).toBe("D")
+			const aAssocs = result.get("A")
+			expect(aAssocs?.[0]?.targetId).toBe("B")
+			expect(aAssocs?.[1]?.targetId).toBe("C")
+			expect(aAssocs?.[2]?.targetId).toBe("D")
 		})
 	})
 
@@ -222,7 +222,7 @@ describe("buildAssociationIndex", () => {
 			}
 			const result = buildAssociationIndex([assoc])
 
-			expect(result.get("A")![0]!.lastReinforced).toBeNull()
+			expect(result.get("A")?.[0]?.lastReinforced).toBeNull()
 		})
 	})
 })

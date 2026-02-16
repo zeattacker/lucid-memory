@@ -33,8 +33,6 @@ pub struct RetrievalCandidate {
 	pub total_activation: f64,
 	/// Retrieval probability (0-1)
 	pub probability: f64,
-	/// Estimated retrieval latency (ms)
-	pub latency_ms: f64,
 }
 
 /// Configuration for retrieval.
@@ -233,8 +231,6 @@ pub fn retrieve(input: &RetrievalInput<'_>, config: &RetrievalConfig) -> Vec<Ret
 				return None;
 			}
 
-			let latency_ms = 1000.0 * (-breakdown.total).exp();
-
 			Some(RetrievalCandidate {
 				index: i,
 				base_level: breakdown.base_level,
@@ -243,7 +239,6 @@ pub fn retrieve(input: &RetrievalInput<'_>, config: &RetrievalConfig) -> Vec<Ret
 				emotional_weight: breakdown.emotional_weight,
 				total_activation: breakdown.total,
 				probability,
-				latency_ms,
 			})
 		})
 		.collect();

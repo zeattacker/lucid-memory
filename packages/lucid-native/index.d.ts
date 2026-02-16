@@ -369,8 +369,6 @@ export interface JsRetrievalCandidate {
 	totalActivation: number
 	/** Retrieval probability (0-1) */
 	probability: number
-	/** Estimated retrieval latency (ms) */
-	latencyMs: number
 }
 
 /** Configuration for retrieval. */
@@ -528,8 +526,6 @@ export interface JsVisualRetrievalCandidate {
 	totalActivation: number
 	/** Retrieval probability */
 	probability: number
-	/** Latency estimate (ms) */
-	latencyMs: number
 }
 
 /** Configuration for visual retrieval. */
@@ -592,17 +588,6 @@ export declare function locationAssociationStrength(
 	isSameActivity: boolean,
 	config?: JsLocationConfig | undefined | null
 ): number
-
-/**
- * Compute decayed familiarity for multiple locations.
- *
- * Returns new familiarity values in the same order as input.
- */
-export declare function locationBatchDecay(
-	locations: Array<JsLocationIntuition>,
-	currentTimeMs: number,
-	config?: JsLocationConfig | undefined | null
-): Array<number>
 
 /**
  * Compute familiarity for a given access count.
@@ -777,21 +762,6 @@ export declare function videoSelectFrames(
 	transcriptSegments?: Array<JsTranscriptSegment> | undefined | null
 ): Array<number>
 
-/** Compute pruning candidates from visual memories. */
-export declare function visualComputePruningCandidates(
-	memories: Array<JsVisualMemory>,
-	currentTimeMs: number,
-	config?: JsVisualConfig | undefined | null
-): Array<JsPruningCandidate>
-
-/** Compute tag strength based on various factors. */
-export declare function visualComputeTagStrength(
-	baseConfidence: number,
-	accessCount: number,
-	significance: number,
-	config?: JsVisualConfig | undefined | null
-): number
-
 /** Retrieve visual memories based on probe embedding. */
 export declare function visualRetrieve(
 	probeEmbedding: Array<number>,
@@ -811,10 +781,4 @@ export declare function visualShouldPrune(
 	isPinned: boolean,
 	isKeyframe: boolean,
 	config?: JsVisualConfig | undefined | null
-): boolean
-
-/** Check if a tag should be applied. */
-export declare function visualShouldTag(
-	strength: number,
-	threshold: number
 ): boolean

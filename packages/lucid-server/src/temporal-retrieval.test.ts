@@ -679,7 +679,6 @@ describe("Temporal Retrieval Improvements", () => {
 			})
 
 			// Manually set familiarity high and last_accessed to old date
-			// biome-ignore lint/complexity/useLiteralKeys: accessing private db for test setup
 			;(
 				retrieval.storage as unknown as {
 					db: {
@@ -831,12 +830,12 @@ describe("Temporal Retrieval Improvements", () => {
 			const associations1 = getCachedAssociations()
 			const cache1 = getCache()
 			expect(cache1).not.toBeNull()
-			const firstCachedAt = cache1!.cachedAt
+			const firstCachedAt = cache1?.cachedAt
 
 			// Get again - should use cache (same cachedAt)
 			const associations2 = getCachedAssociations()
 			const cache2 = getCache()
-			expect(cache2!.cachedAt).toBe(firstCachedAt)
+			expect(cache2?.cachedAt).toBe(firstCachedAt)
 
 			// Same result from cache
 			expect(associations1).toBe(associations2)
@@ -965,7 +964,7 @@ describe("Temporal Retrieval Improvements", () => {
 			const project = retrieval.storage.getOrCreateProject(`/test/${projectId}`)
 
 			// Store memory using storage.storeMemory
-			const memory = retrieval.storage.storeMemory({
+			retrieval.storage.storeMemory({
 				type: "context",
 				content: "Phase independence test memory",
 				projectId: project.id,

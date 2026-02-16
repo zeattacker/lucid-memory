@@ -12,6 +12,11 @@
 import { describe, expect, it } from "bun:test"
 import { estimateTokens, fitsInBudget, generateGist } from "./gist.ts"
 
+const BRACKETS_ALGORITHMS = /\[.*algorithms.*\]/
+const BRACKETS_MEMORY = /\[.*memory.*\]/
+const BRACKETS_THE = /\[.*\bthe\b.*\]/
+const PARTIAL_WORD_ELLIPSIS = /\w\.\.\./
+
 describe("generateGist", () => {
 	describe("basic functionality", () => {
 		it("should return content unchanged if under maxLength", () => {
@@ -92,7 +97,7 @@ describe("generateGist", () => {
 				"The system processes data. Data processing involves multiple algorithms. Algorithms are essential for computing. Algorithms drive everything. This extra text ensures we exceed the maxLength limit."
 			const gist = generateGist(text, 80)
 			// "algorithms" appears 3x outside first sentence, should be key term
-			expect(gist).toMatch(/\[.*algorithms.*\]/)
+			expect(gist).toMatch(BRACKETS_ALGORITHMS)
 		})
 
 		it("should not include words from first sentence as key terms", () => {
@@ -101,7 +106,7 @@ describe("generateGist", () => {
 			const gist = generateGist(text, 150)
 			// "memory" is in first sentence, should not be in key terms
 			if (gist.includes("[")) {
-				expect(gist).not.toMatch(/\[.*memory.*\]/)
+				expect(gist).not.toMatch(BRACKETS_MEMORY)
 			}
 		})
 
@@ -111,7 +116,7 @@ describe("generateGist", () => {
 			const gist = generateGist(text, 150)
 			// "the" should not appear in key terms even though frequent
 			if (gist.includes("[")) {
-				expect(gist).not.toMatch(/\[.*\bthe\b.*\]/)
+				expect(gist).not.toMatch(BRACKETS_THE)
 			}
 		})
 
@@ -138,7 +143,7 @@ describe("generateGist", () => {
 				"Antidisestablishmentarianism is a long word that should not be cut."
 			const gist = generateGist(text, 30)
 			// Should either include full word or stop before it
-			expect(gist).not.toMatch(/\w\.\.\./) // No partial word before ...
+			expect(gist).not.toMatch(PARTIAL_WORD_ELLIPSIS) // No partial word before ...
 		})
 	})
 

@@ -304,8 +304,6 @@ pub struct VisualRetrievalCandidate {
 	pub total_activation: f64,
 	/// Retrieval probability (0-1)
 	pub probability: f64,
-	/// Estimated retrieval latency (ms)
-	pub latency_ms: f64,
 }
 
 /// Input data for visual retrieval.
@@ -441,8 +439,6 @@ pub fn retrieve_visual(
 				return None;
 			}
 
-			let latency_ms = 1000.0 * (-boosted_total).exp();
-
 			Some(VisualRetrievalCandidate {
 				index: i,
 				base_level: breakdown.base_level,
@@ -452,7 +448,6 @@ pub fn retrieve_visual(
 				significance_boost: significance_boost + emotional_boost,
 				total_activation: boosted_total,
 				probability,
-				latency_ms,
 			})
 		})
 		.collect();
