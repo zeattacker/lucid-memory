@@ -92,6 +92,7 @@ export interface EmbeddingConfig {
 	model?: string
 	ollamaHost?: string
 	openaiApiKey?: string
+	openaiBaseUrl?: string
 }
 
 export interface EmbeddingResult {
@@ -224,7 +225,13 @@ export class EmbeddingClient {
 				const response = await fetch(`${host}/api/tags`)
 				return response.ok
 			}
-			// OpenAI: just check if API key exists
+			// OpenAI: probe custom endpoint, or check API key for cloud
+			if (this.config.openaiBaseUrl) {
+				const response = await fetch(`${this.config.openaiBaseUrl}/models`, {
+					signal: AbortSignal.timeout(3000),
+				})
+				return response.ok
+			}
 			return !!this.config.openaiApiKey
 		} catch {
 			return false
@@ -340,19 +347,22 @@ export class EmbeddingClient {
 	}
 
 	private async embedOpenAIBatch(texts: string[]): Promise<EmbeddingResult[]> {
+		const baseUrl = this.config.openaiBaseUrl ?? "https://api.openai.com/v1"
 		const apiKey = this.config.openaiApiKey
-		if (!apiKey) {
+
+		if (!apiKey && !this.config.openaiBaseUrl) {
 			throw new Error("OpenAI API key required")
 		}
 
 		const model = this.config.model ?? defaultOpenaiModel
+		const headers: Record<string, string> = { "Content-Type": "application/json" }
+		if (apiKey) {
+			headers.Authorization = `Bearer ${apiKey}`
+		}
 
-		const response = await fetch("https://api.openai.com/v1/embeddings", {
+		const response = await fetch(`${baseUrl}/embeddings`, {
 			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				Authorization: `Bearer ${apiKey}`,
-			},
+			headers,
 			body: JSON.stringify({
 				model,
 				input: texts,
@@ -382,10 +392,23 @@ export class EmbeddingClient {
 /**
  * Auto-detect the best available embedding provider.
  *
- * Priority: native → OpenAI (env var) → Ollama (legacy) → null
+ * Priority: explicit local (LUCID_EMBEDDING_URL) → native → OpenAI (env var) → Ollama (legacy) → null
  */
 export async function detectProvider(): Promise<EmbeddingConfig | null> {
-	// 1. Try native in-process embeddings (zero deps, best UX)
+	// 1. Explicit local embedding endpoint (LM Studio, vLLM, etc.)
+	// biome-ignore lint/style/noProcessEnv: Config detection requires environment access
+	const embeddingUrl = process.env.LUCID_EMBEDDING_URL
+	if (embeddingUrl) {
+		// biome-ignore lint/style/noProcessEnv: Config detection requires environment access
+		const embeddingModel = process.env.LUCID_EMBEDDING_MODEL
+		return {
+			provider: "openai",
+			openaiBaseUrl: embeddingUrl,
+			model: embeddingModel,
+		}
+	}
+
+	// 2. Try native in-process embeddings (zero deps, best UX)
 	if (nativeEmbedding?.isEmbeddingModelLoaded?.()) {
 		return { provider: "native", model: "bge-base-en-v1.5" }
 	}
@@ -398,14 +421,14 @@ export async function detectProvider(): Promise<EmbeddingConfig | null> {
 		}
 	}
 
-	// 2. Check for OpenAI API key in environment
+	// 3. Check for OpenAI API key in environment
 	// biome-ignore lint/style/noProcessEnv: Config detection requires environment access
 	const openaiKey = process.env.OPENAI_API_KEY
 	if (openaiKey) {
 		return { provider: "openai", openaiApiKey: openaiKey }
 	}
 
-	// 3. Try Ollama (legacy fallback for users who have it installed)
+	// 4. Try Ollama (legacy fallback for users who have it installed)
 	try {
 		const response = await fetch(`${defaultOllamaHost}/api/tags`, {
 			signal: AbortSignal.timeout(2000),
