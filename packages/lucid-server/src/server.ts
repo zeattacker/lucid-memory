@@ -2117,10 +2117,6 @@ async function main(): Promise<void> {
 	// Check for updates in background (non-blocking)
 	void checkForUpdates()
 
-	// Now connect to transport
-	const transport = new StdioServerTransport()
-	await server.connect(transport)
-
 	// Log native core version if available
 	try {
 		const native = await import("@lucid-memory/native")
@@ -2129,7 +2125,96 @@ async function main(): Promise<void> {
 		console.error("[lucid] Native core: not available (using TS fallback)")
 	}
 
-	console.error("[lucid] Server connected. Ready for Claude Code.")
+	// biome-ignore lint/style/noProcessEnv: Transport mode selection
+	const httpPort = process.env.LUCID_HTTP_PORT ? parseInt(process.env.LUCID_HTTP_PORT, 10) : null
+
+	if (httpPort) {
+		await startHttpTransport(httpPort)
+	} else {
+		const transport = new StdioServerTransport()
+		await server.connect(transport)
+		console.error("[lucid] Server connected. Ready for Claude Code.")
+	}
+}
+
+async function startHttpTransport(port: number): Promise<void> {
+	const { StreamableHTTPServerTransport } = await import(
+		"@modelcontextprotocol/sdk/server/streamableHttp.js"
+	)
+	const { SSEServerTransport } = await import(
+		"@modelcontextprotocol/sdk/server/sse.js"
+	)
+	const { randomUUID } = await import("node:crypto")
+	const { createServer, IncomingMessage, ServerResponse } = await import("node:http")
+
+	// StreamableHTTP transport (new protocol, POST /mcp)
+	const streamableTransport = new StreamableHTTPServerTransport({
+		sessionIdGenerator: () => randomUUID(),
+	})
+	await server.connect(streamableTransport)
+
+	// SSE transports map for legacy protocol (GET /sse + POST /messages)
+	const sseTransports = new Map<string, InstanceType<typeof SSEServerTransport>>()
+
+	const httpServer = createServer(async (req, res) => {
+		const url = req.url ?? ""
+
+		// New StreamableHTTP protocol: POST/GET/DELETE /mcp
+		if (url.startsWith("/mcp")) {
+			if (req.method === "POST") {
+				let body = ""
+				req.on("data", (chunk: Buffer) => { body += chunk })
+				await new Promise<void>((resolve) => req.on("end", resolve))
+				try {
+					await streamableTransport.handleRequest(req, res, JSON.parse(body))
+				} catch {
+					await streamableTransport.handleRequest(req, res)
+				}
+			} else {
+				await streamableTransport.handleRequest(req, res)
+			}
+			return
+		}
+
+		// Legacy SSE protocol: GET /sse establishes stream
+		if (url.startsWith("/sse") && req.method === "GET") {
+			const sseTransport = new SSEServerTransport("/messages", res)
+			sseTransports.set(sseTransport.sessionId, sseTransport)
+			sseTransport.onclose = () => sseTransports.delete(sseTransport.sessionId)
+			await server.connect(sseTransport)
+			return
+		}
+
+		// Legacy SSE protocol: POST /messages sends a message to existing session
+		if (url.startsWith("/messages") && req.method === "POST") {
+			const sessionId = new URL(url, "http://localhost").searchParams.get("sessionId") ?? ""
+			const sseTransport = sseTransports.get(sessionId)
+			if (sseTransport) {
+				let body = ""
+				req.on("data", (chunk: Buffer) => { body += chunk })
+				await new Promise<void>((resolve) => req.on("end", resolve))
+				await sseTransport.handlePostMessage(req, res, JSON.parse(body))
+			} else {
+				res.writeHead(404)
+				res.end("Session not found")
+			}
+			return
+		}
+
+		res.writeHead(404)
+		res.end("Not found")
+	})
+
+	await new Promise<void>((resolve, reject) => {
+		httpServer.listen(port, "0.0.0.0", resolve)
+		httpServer.on("error", reject)
+	})
+
+	console.error(`[lucid] HTTP server listening on port ${port}`)
+	console.error("[lucid] Server connected. Ready for HTTP connections.")
+
+	// Keep process alive until signal
+	await new Promise<void>(() => {})
 }
 
 let isShuttingDown = false

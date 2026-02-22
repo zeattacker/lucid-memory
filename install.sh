@@ -596,43 +596,53 @@ show_progress  # Step 3: Create directory
 # === Install Lucid Server ===
 
 echo ""
-echo "Downloading Lucid Memory..."
 
-TEMP_DIR=$(mktemp -d)
-INSTALL_TEMP_DIR="$TEMP_DIR"
-cd "$TEMP_DIR"
-
-# Clone the repository (shallow clone for speed)
-# GIT_TERMINAL_PROMPT=0 prevents git from asking for credentials if repo not found
-DOWNLOAD_OK=false
-if GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/JasonDocton/lucid-memory.git 2>/dev/null; then
+# Determine source: use local repo if install.sh is run from within it,
+# otherwise clone from GitHub (original behavior)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOCAL_INSTALL=false
+if [ -d "$SCRIPT_DIR/packages/lucid-server" ] && [ -d "$SCRIPT_DIR/packages/lucid-native" ]; then
+    LOCAL_INSTALL=true
+    echo "Installing from local source: $SCRIPT_DIR"
+    REPO_SOURCE_DIR="$SCRIPT_DIR"
     DOWNLOAD_OK=true
-fi
+else
+    echo "Downloading Lucid Memory..."
+    TEMP_DIR=$(mktemp -d)
+    INSTALL_TEMP_DIR="$TEMP_DIR"
+    cd "$TEMP_DIR"
 
-# Fallback: download zip archive if git clone fails
-if [ "$DOWNLOAD_OK" = false ]; then
-    warn "Git clone failed, trying zip download..."
-    # Clean up partial git clone directory if it exists
-    rm -rf "lucid-memory" 2>/dev/null
-    if curl -fsSL "https://github.com/JasonDocton/lucid-memory/archive/refs/heads/main.zip" -o "lucid-memory.zip" 2>/dev/null; then
-        if command -v unzip &> /dev/null; then
-            unzip -q "lucid-memory.zip" && mv "lucid-memory-main" "lucid-memory" && DOWNLOAD_OK=true
-        elif command -v python3 &> /dev/null; then
-            python3 -c "import zipfile; zipfile.ZipFile('lucid-memory.zip').extractall()" && mv "lucid-memory-main" "lucid-memory" && DOWNLOAD_OK=true
-        fi
-        rm -f "lucid-memory.zip"
+    DOWNLOAD_OK=false
+    if GIT_TERMINAL_PROMPT=0 git clone --depth 1 https://github.com/zeattacker/lucid-memory.git 2>/dev/null; then
+        DOWNLOAD_OK=true
     fi
-fi
 
-if [ "$DOWNLOAD_OK" = false ]; then
-    fail "Could not download Lucid Memory" \
-        "Please check your internet connection and try again.\n\nIf the problem persists, try downloading manually:\n  https://github.com/JasonDocton/lucid-memory"
+    # Fallback: download zip archive if git clone fails
+    if [ "$DOWNLOAD_OK" = false ]; then
+        warn "Git clone failed, trying zip download..."
+        rm -rf "lucid-memory" 2>/dev/null
+        if curl -fsSL "https://github.com/zeattacker/lucid-memory/archive/refs/heads/main.zip" -o "lucid-memory.zip" 2>/dev/null; then
+            if command -v unzip &> /dev/null; then
+                unzip -q "lucid-memory.zip" && mv "lucid-memory-main" "lucid-memory" && DOWNLOAD_OK=true
+            elif command -v python3 &> /dev/null; then
+                python3 -c "import zipfile; zipfile.ZipFile('lucid-memory.zip').extractall()" && mv "lucid-memory-main" "lucid-memory" && DOWNLOAD_OK=true
+            fi
+            rm -f "lucid-memory.zip"
+        fi
+    fi
+
+    if [ "$DOWNLOAD_OK" = false ]; then
+        fail "Could not download Lucid Memory" \
+            "Please check your internet connection and try again."
+    fi
+
+    REPO_SOURCE_DIR="$TEMP_DIR/lucid-memory"
 fi
 
 # Copy the server
-if [ -d "lucid-memory/packages/lucid-server" ]; then
+if [ -d "$REPO_SOURCE_DIR/packages/lucid-server" ]; then
     rm -rf "$LUCID_DIR/server" 2>/dev/null || true
-    if ! cp -r "lucid-memory/packages/lucid-server" "$LUCID_DIR/server"; then
+    if ! cp -r "$REPO_SOURCE_DIR/packages/lucid-server" "$LUCID_DIR/server"; then
         fail "Failed to copy server files" \
             "Could not copy server to $LUCID_DIR/server"
     fi
@@ -642,19 +652,19 @@ if [ -d "lucid-memory/packages/lucid-server" ]; then
     fi
 else
     fail "Invalid repository structure" \
-        "The downloaded repository is missing required files."
+        "The repository is missing required files (packages/lucid-server)."
 fi
 
 # Copy native package
-if [ -d "lucid-memory/packages/lucid-native" ]; then
+if [ -d "$REPO_SOURCE_DIR/packages/lucid-native" ]; then
     rm -rf "$LUCID_DIR/native" 2>/dev/null || true
-    cp -r "lucid-memory/packages/lucid-native" "$LUCID_DIR/native"
+    cp -r "$REPO_SOURCE_DIR/packages/lucid-native" "$LUCID_DIR/native"
 fi
 
 # Copy perception package (video processing)
-if [ -d "lucid-memory/packages/lucid-perception" ]; then
+if [ -d "$REPO_SOURCE_DIR/packages/lucid-perception" ]; then
     rm -rf "$LUCID_DIR/perception" 2>/dev/null || true
-    cp -r "lucid-memory/packages/lucid-perception" "$LUCID_DIR/perception"
+    cp -r "$REPO_SOURCE_DIR/packages/lucid-perception" "$LUCID_DIR/perception"
 fi
 
 # Detect if the system uses musl libc (Alpine, Void, etc.)
@@ -711,10 +721,22 @@ if [ -n "$NATIVE_BINARY" ] && [ -f "$LUCID_DIR/native/$NATIVE_BINARY" ]; then
     NATIVE_READY=true
 fi
 
+# If local install, try to use already-compiled binary from target/release/
+if [ "$NATIVE_READY" = false ] && [ "$LOCAL_INSTALL" = true ] && [ -n "$NATIVE_BINARY" ]; then
+    LOCAL_BINARY="$REPO_SOURCE_DIR/target/release/liblucid_napi.so"
+    if [ -f "$LOCAL_BINARY" ]; then
+        echo "Using locally compiled native binary..."
+        cp "$LOCAL_BINARY" "$LUCID_DIR/native/$NATIVE_BINARY"
+        chmod +x "$LUCID_DIR/native/$NATIVE_BINARY"
+        success "Local compiled binary installed ($NATIVE_BINARY)"
+        NATIVE_READY=true
+    fi
+fi
+
 # If no pre-built binary, try to download from latest release
 if [ "$NATIVE_READY" = false ] && [ -n "$NATIVE_BINARY" ]; then
     echo "Downloading pre-built native binary..."
-    RELEASE_URL="https://github.com/JasonDocton/lucid-memory/releases/latest/download/$NATIVE_BINARY"
+    RELEASE_URL="https://github.com/zeattacker/lucid-memory/releases/latest/download/$NATIVE_BINARY"
     if curl -fsSL "$RELEASE_URL" -o "$LUCID_DIR/native/$NATIVE_BINARY" 2>/dev/null; then
         # Validate the downloaded file is non-empty
         if [ -s "$LUCID_DIR/native/$NATIVE_BINARY" ]; then
@@ -823,7 +845,7 @@ fi
 # If no pre-built binary, try to download from latest release
 if [ "$PERCEPTION_READY" = false ] && [ -n "$PERCEPTION_BINARY" ] && [ -d "$LUCID_DIR/perception" ]; then
     echo "Downloading pre-built perception binary..."
-    PERCEPTION_RELEASE_URL="https://github.com/JasonDocton/lucid-memory/releases/latest/download/$PERCEPTION_BINARY"
+    PERCEPTION_RELEASE_URL="https://github.com/zeattacker/lucid-memory/releases/latest/download/$PERCEPTION_BINARY"
     if curl -fsSL "$PERCEPTION_RELEASE_URL" -o "$LUCID_DIR/perception/$PERCEPTION_BINARY" 2>/dev/null; then
         # Validate the downloaded file is non-empty
         if [ -s "$LUCID_DIR/perception/$PERCEPTION_BINARY" ]; then

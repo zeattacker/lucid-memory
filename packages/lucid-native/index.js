@@ -313,20 +313,26 @@ function requireNative() {
           loadErrors.push(e)
         }
       } else {
-        try {
-          return require('./lucid-native.linux-arm64-gnu.node')
-        } catch (e) {
-          loadErrors.push(e)
-        }
-        try {
-          const binding = require('@lucid-memory/native-linux-arm64-gnu')
-          const bindingPackageVersion = require('@lucid-memory/native-linux-arm64-gnu/package.json').version
-          if (bindingPackageVersion !== '0.5.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
-            throw new Error(`Native binding package version mismatch, expected 0.5.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+        // Skip native module in Docker (segfault workaround for ARM64 Linux containers)
+        const isDocker = require('node:fs').existsSync('/.dockerenv')
+        if (!isDocker) {
+          try {
+            return require('./lucid-native.linux-arm64-gnu.node')
+          } catch (e) {
+            loadErrors.push(e)
           }
-          return binding
-        } catch (e) {
-          loadErrors.push(e)
+          try {
+            const binding = require('@lucid-memory/native-linux-arm64-gnu')
+            const bindingPackageVersion = require('@lucid-memory/native-linux-arm64-gnu/package.json').version
+            if (bindingPackageVersion !== '0.5.0' && process.env.NAPI_RS_ENFORCE_VERSION_CHECK && process.env.NAPI_RS_ENFORCE_VERSION_CHECK !== '0') {
+              throw new Error(`Native binding package version mismatch, expected 0.5.0 but got ${bindingPackageVersion}. You can reinstall dependencies to fix this issue.`)
+            }
+            return binding
+          } catch (e) {
+            loadErrors.push(e)
+          }
+        } else {
+          loadErrors.push(new Error('Native module skipped in Docker (ARM64 segfault workaround)'))
         }
       }
     } else if (process.arch === 'arm') {

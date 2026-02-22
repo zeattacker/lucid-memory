@@ -1,0 +1,20 @@
+[Unit]
+Description=Lucid Memory MCP Server
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=nvidia
+Environment=LUCID_HTTP_PORT=7384
+Environment=LUCID_EMBEDDING_URL=http://localhost:8000/v1
+Environment=LUCID_EMBEDDING_MODEL=text-embedding-bge-m3
+ExecStart=/home/nvidia/.lucid/bun/bin/bun run /home/nvidia/.lucid/server/src/server.ts
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/nvidia/.lucid/logs/server.log
+StandardError=append:/home/nvidia/.lucid/logs/server.log
+
+[Install]
+WantedBy=multi-user.target
